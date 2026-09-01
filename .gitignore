@@ -1,0 +1,14 @@
+# Data is NOT committed. The pipeline downloads it (see src/data.py).
+# This habit is deliberate: MIMIC-IV's data use agreement prohibits
+# redistributing row-level records, so the project is built that way
+# from the first commit rather than retrofitted later.
+data/
+*.csv
+*.zip
+
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+.claude/
