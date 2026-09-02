@@ -85,9 +85,15 @@ def despine(ax, keep=("left", "bottom")) -> None:
         ax.spines[side].set_visible(side in keep)
 
 
-def caption(fig, text: str) -> None:
-    """Add a source/reading note beneath the figure."""
-    fig.text(0.01, -0.02, text, ha="left", va="top",
+def caption(fig, text: str, y: float = -0.02) -> None:
+    """
+    Add a source/reading note beneath the figure.
+
+    `y` is in figure coordinates and needs lowering when something else already
+    occupies the space below the axes -- a survival plot's numbers-at-risk
+    table being the case that forced this parameter to exist.
+    """
+    fig.text(0.01, y, text, ha="left", va="top",
              fontsize=8, color=INK_MUTED, wrap=True)
 
 

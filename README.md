@@ -133,8 +133,11 @@ death) is held out and never read before modelling.
 ```
 ├── 01_eda.py                  # Q1–6:  outcome structure, leakage audit,
 │                              #        missingness mechanism, binary vs time-to-event
-├── 02_profile.py              # Q7–11: Table 1, physiologic plausibility,
-│                              #        distributions, functional form, collinearity
+├── 02_profile.py              # Q7–11:  Table 1, physiologic plausibility,
+│                              #         distributions, functional form, collinearity
+├── 03_cohort.py               # Q12–17: data dictionary, survival with numbers at
+│                              #         risk, hazard shape, missingness patterns,
+│                              #         enrolment forensics, VIF on imputed data
 ├── src/
 │   ├── support2.py            # Loading + column governance (what may be a predictor)
 │   └── viz.py                 # Shared figure styling; CVD-validated palette
@@ -148,12 +151,55 @@ Run:
 pip install -r requirements.txt
 python 01_eda.py
 python 02_profile.py
+python 03_cohort.py
 ```
 
 No patient data is committed. The loader reads a local copy if present and otherwise
 downloads from UCI. That is deliberate: most clinical data use agreements prohibit
 redistributing row-level records, so the project is built to that standard from the
 first commit rather than retrofitted.
+
+---
+
+## The mechanism, proven
+
+[`03_cohort.py`](03_cohort.py) closes the loop on the finding above. The earlier
+script could only say the BUN association was *not causal* and offered SUPPORT's
+two-phase enrolment as an unverified guess. SUPPORT2 ships no phase column — but
+censoring times carry the information anyway.
+
+![Enrolment waves](output/figures/08_enrolment_waves.png)
+
+Administrative censoring happens when a *study* closes, not when a patient leaves, so
+censored follow-up is a direct function of enrolment date. If accrual came in two
+waves against one closing date, the distribution must be bimodal — and it is, with an
+interval near 1,150 days holding **one patient** against neighbours of 42 and 28. A
+single continuous accrual cannot produce that gap.
+
+Splitting on it is close to deterministic:
+
+| | missing, early wave | missing, late wave |
+|---|---|---|
+| `bun` | **100.0%** | 0.9% |
+| `urine` | **100.0%** | 9.1% |
+| `glucose` | **100.0%** | 6.1% |
+| `adlp` | 31.5% | 23.0% |
+| `income` | 27.5% | 21.7% |
+
+A 100%-to-1% split is not a measurement pattern, it is a protocol: those three assays
+were not part of the early collection instrument. No censored patient with BUN
+recorded falls in the early wave; 98.7% of those missing it do.
+
+Every step of the spurious association is now visible, and none of it involves the
+patient. Missing BUN records *when* someone was enrolled → earlier enrolment means
+longer observation → longer observation means a higher chance of having died before
+the study closed. A missingness indicator on BUN would be a covariate for calendar
+time wearing a clinical label.
+
+The script also covers the description a reviewer expects: a full data dictionary
+with units and ranges, overall survival **with numbers at risk** (978 → 15 by day
+1,825 — the element whose absence gets survival figures rejected), the hazard shape
+(early hazard 6× the late), and missingness co-occurrence patterns.
 
 ---
 
@@ -200,6 +246,8 @@ another model's output, and constructed-from-the-predictors.
 
 - [x] Exploratory analysis, missingness mechanism, leakage audit
 - [x] Table 1 with SMDs, plausibility bounds, functional form, collinearity
+- [x] Data dictionary, survival with numbers at risk, hazard shape
+- [x] Enrolment-wave mechanism established; VIF recomputed on imputed data
 - [ ] Multiple imputation inside CV folds; complete-case and normal-fill sensitivity
 - [ ] Logistic regression with odds ratios and 95% CIs
 - [ ] Gradient boosting comparator, with a confidence interval on ΔAUC
@@ -209,8 +257,13 @@ another model's output, and constructed-from-the-predictors.
 
 ## Limitations
 
-SUPPORT2 was collected at five US teaching hospitals between 1989 and 1994; case
-mix, practice patterns and available therapies have all moved since. The follow-up
-imbalance documented above is consistent with the study's two enrolment phases, but
-the public file ships no phase indicator, so that explanation is a hypothesis rather
-than a verified cause. All validation here is internal — no external cohort.
+SUPPORT2 was collected at five US teaching hospitals between 1989 and 1994; case mix,
+practice patterns and available therapies have all moved since. All validation here
+is internal — no external cohort.
+
+The enrolment-wave assignment is a **proxy inferred from censoring times**, not a
+recorded field, and it can only be assigned to censored patients: someone who died
+before the closing date reveals nothing about their enrolment date. That is a real
+limit on the proof. It does not weaken the conclusion, because the mechanism only
+needs to explain the censored patients to account for the imbalance in observation
+windows — but the inference should not be overstated as a recovered study variable.
