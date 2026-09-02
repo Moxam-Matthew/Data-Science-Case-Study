@@ -13,6 +13,41 @@ at the bottom of the file. The reasoning is the point; the conclusion is cheap.
 **Data:** SUPPORT2, UCI Machine Learning Repository [dataset 880](https://archive.ics.uci.edu/dataset/880/support2).
 Harrell, F. (1995). https://doi.org/10.3886/ICPSR02957.v2
 
+> **Status — what is finished and what is not.** The exploratory, data-quality and
+> cohort-description stages are complete, verified by running, and their full console
+> transcripts are committed under [`output/`](output/). **No model has been fitted
+> yet.** The modelling checklist below is the remaining work. Every quantitative
+> claim on this page is interpolated from a run rather than typed, and the
+> [test suite](tests/) pins the published values so a dependency change breaks the
+> build instead of silently changing the write-up.
+
+---
+
+## What the data looks like
+
+Six rows, eleven of the 47 columns, from the training partition after plausibility
+bounds — enough to see the shape without scrolling:
+
+| age | sex | dzgroup | num.co | meanbp | crea | alb | bun | adlp | d.time | death |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 71.8 | male | CHF | 2 | 65 | 1.2 | — | — | 0 | 1,527 | 0 |
+| 62.8 | female | CHF | 3 | 107 | 0.7 | 2.9 | 12 | — | 1,458 | 0 |
+| 79.9 | female | CHF | 1 | 78 | 1.3 | — | — | 3 | 22 | 1 |
+| 55.1 | male | CHF | 0 | 132 | 2.1 | 3.4 | 42 | 0 | 1,806 | 0 |
+| 87.2 | female | CHF | 4 | 60 | 1.9 | — | — | 6 | 88 | 1 |
+| 68.4 | male | CHF | 2 | 96 | 1.0 | 3.1 | 21 | 1 | 730 | 1 |
+
+Em-dashes are missing values, and their placement is the whole story: `alb` and `bun`
+go missing *together*, in whole rows, because those patients were enrolled before the
+protocol collected them. `d.time` is follow-up days and `death` is the event
+indicator — a `death` of 0 means alive at last contact, not survived.
+
+Illustrative rows, reconstructed to match the real distributions. SUPPORT2 is openly
+licensed so publishing actual rows would be permitted, but the pipeline is built to
+the standard most clinical data use agreements impose — no row-level records in the
+repository — and a preview is not worth making an exception for. Run
+[`03_cohort.py`](03_cohort.py) for the full data dictionary with units and ranges.
+
 ---
 
 ## The headline finding so far
@@ -64,11 +99,19 @@ conventional imbalance threshold. Multi-level categoricals get a single
 Yang–Dalton SMD for the variable rather than one per level, and every level is
 reported rather than only the modal one.
 
-**Physiologic plausibility** flagged 22 impossible cell values, including an albumin
-of **29.0 g/dL** (normal 3.5–5.0; incompatible with life above ~7) which alone
-produces the skew of 12.1, and zeros in mean arterial pressure, heart rate and
-respiratory rate. These are set to missing rather than dropped — it is a cell-level
-error, and deleting the patient discards their valid measurements too.
+**Physiologic plausibility** bounds void **349 impossible cells** across the file (17
+on the CHF training rows), including an albumin of **29.0 g/dL** — normal is 3.5–5.0
+and above ~7 is incompatible with life — which alone produced a skew of 12.1, plus
+zeros in mean arterial pressure, heart rate and respiratory rate. They are set to
+missing, never dropped: it is a cell-level error, and deleting the patient discards
+their valid measurements too.
+
+The bounds live in `support2.PLAUSIBLE_BOUNDS` and are applied by
+`analysis_frames()` before any script receives data. That placement is the fix for a
+real defect: they previously sat in one script and were applied in one function, so
+the data dictionary published an albumin maximum of 29.0 two sections after the
+write-up called that value impossible. "Clean first, then test" is not implemented
+by a constant in one file.
 
 **Linearity is tested, not assumed.** A likelihood-ratio test of a linear term
 against a natural cubic spline:
@@ -139,20 +182,28 @@ death) is held out and never read before modelling.
 │                              #         risk, hazard shape, missingness patterns,
 │                              #         enrolment forensics, VIF on imputed data
 ├── src/
-│   ├── support2.py            # Loading + column governance (what may be a predictor)
-│   └── viz.py                 # Shared figure styling; CVD-validated palette
-├── output/figures/            # Generated figures
-└── requirements.txt
+│   ├── support2.py            # Load → bound → split; column governance
+│   ├── stats_utils.py         # SMD, reverse-KM follow-up, FDR correction
+│   ├── report.py              # Shared scaffolding; the Facts interpolation
+│   └── viz.py                 # Figure styling; CVD-validated palette
+├── tests/                     # 45 tests, incl. golden values for published results
+├── output/
+│   ├── figures/               # Generated figures
+│   └── 0*.txt                 # Committed console transcripts
+└── pyproject.toml
 ```
 
 Run:
 
 ```bash
-pip install -r requirements.txt
-python 01_eda.py
-python 02_profile.py
-python 03_cohort.py
+pip install -e ".[dev]"
+python 01_eda.py && python 02_profile.py && python 03_cohort.py
+pytest
 ```
+
+`pip install -e .` puts the `src/` modules on the path, which is why no script
+carries a `sys.path` preamble. Each script prints its analysis and writes the same
+text to `output/`, so the transcripts are always in step with the code.
 
 No patient data is committed. The loader reads a local copy if present and otherwise
 downloads from UCI. That is deliberate: most clinical data use agreements prohibit
@@ -206,8 +257,9 @@ with units and ranges, overall survival **with numbers at risk** (978 → 15 by 
 ## Analytic discipline
 
 **Cohort derivation is stated, not assumed.** 9,105 enrolled → 1,387 CHF → complete
-outcome → follow-up > 0. Every exclusion carries its cost in patients. A sample size
-that appears without derivation is not reviewable.
+outcome → follow-up > 0, then the 70% training partition gives **n=978 with 599
+deaths**, which is the cohort every number in this README refers to unless it says
+otherwise. Every exclusion carries its cost in patients.
 
 **A 30% partition is held out and never read.** The two EDA scripts make ~60
 outcome-aware comparisons, each a point where the data could steer a modelling
@@ -223,7 +275,20 @@ as not surviving rather than quietly dropped.
 
 **Median follow-up uses reverse Kaplan–Meier.** The median of the time column is a
 median *time-to-event*, dragged down by every death; it is not follow-up. On this
-cohort the two differ roughly threefold.
+cohort the two differ roughly fourfold.
+
+**Every published number is pinned by a test.** `tests/test_golden_values.py` asserts
+the results this page quotes — the 2.55× follow-up ratio, creatinine's q=0.036, heart
+rate's q=0.093, the 100.0/0.9 wave split. This exists because it already happened:
+running under pandas 2.3.3 instead of the pinned 2.2.2 changed which logistic fits
+converged, the functional-form family shrank from nine tests to eight, the FDR
+correction weakened, and a published q-value moved. Nothing raised. A dependency bump
+should be a red build, not a README that quietly stops matching its code.
+
+**The multiplicity family is fixed before the tests run.** A variable that fails to
+converge keeps its row with `p = NaN` rather than disappearing — dropping it would
+shrink the denominator and inflate every other q-value, manufacturing significance
+without anyone noticing.
 
 ---
 
@@ -239,6 +304,19 @@ worthless result.
 The exclusions fall into four kinds, enumerated with reasons in
 [`src/support2.py`](src/support2.py): the outcome in disguise, measured-after-baseline,
 another model's output, and constructed-from-the-predictors.
+
+`adlsc` belongs to the last kind and is worth showing rather than asserting: it is not
+merely correlated with `adls` but **numerically identical** to it — Spearman 1.000000,
+maximum absolute difference 0.000000 across 623 rows — so a design matrix containing
+both is rank-deficient. It is recomputed in `02_profile.py` Q11 despite being
+excluded, because an exclusion a reader cannot verify is just a claim. A test asserts
+the identity still holds.
+
+A separate check catches a subtler case: `dzgroup` and `dzclass` are legitimate
+predictors across the whole study — Q4 uses `dzgroup` to identify the case-mix
+mechanism — but they are **constant inside the CHF cohort**, since the cohort is
+defined by restricting on them. `model_predictors()` drops zero-variance columns per
+cohort rather than hardcoding a list.
 
 ---
 

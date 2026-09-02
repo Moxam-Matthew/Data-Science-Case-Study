@@ -1,13 +1,14 @@
 """
 03_cohort.py -- Data dictionary, survival description, and the enrolment forensics.
 
-Continues the question format. Answers are held at the bottom.
+Continues the question format. Answers are held at the bottom and every number
+in them is interpolated from the run.
 
     Run:  python 03_cohort.py
 
 THE QUESTIONS
-    Q12  Produce the data dictionary a reviewer would ask for: type, unit, N,
-         missing, and range for every column. What does it catch that Table 1
+    Q12  Produce the data dictionary a reviewer would ask for: role, type, unit,
+         N, missing and range for every column. What does it catch that Table 1
          does not?
     Q13  Plot overall survival for the cohort. Clinical journals will reject a
          Kaplan-Meier curve that is missing one specific element. What is it,
@@ -20,61 +21,43 @@ THE QUESTIONS
     Q16  01_eda.py concluded that BUN missingness is an artefact of unequal
          follow-up and offered enrolment phase as an unverified explanation.
          SUPPORT2 ships no phase column. Prove or refute it anyway.
-    Q17  The VIF table in 02_profile.py rests on complete cases only, which is
-         under 10% of the training cohort. Recompute it honestly and say
-         whether the conclusion holds.
+    Q17  The VIF table in 02_profile.py rests on complete cases only, well under
+         a fifth of the training cohort. Recompute it honestly and say whether
+         the conclusion holds.
 
 Author: Matthew Moxam
 """
 
 from __future__ import annotations
 
-import sys
-import warnings
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
-
-import viz  # noqa: E402
-from stats_utils import median_followup  # noqa: E402
-from support2 import (  # noqa: E402
+import viz
+from report import RULE, Facts, configure_pandas, header, question, run_and_capture
+from stats_utils import median_followup
+from support2 import (
     CANDIDATE_PREDICTORS,
     DERIVED_DUPLICATES,
     LEAKAGE_COLUMNS,
     OUTCOME_EVENT,
     OUTCOME_TIME,
     UNITS,
-    chf_cohort,
-    load_support2,
-    make_split,
+    analysis_frames,
 )
 
-warnings.filterwarnings("ignore")
-pd.set_option("display.width", 220)
-
-RULE = "=" * 78
-SUB = "-" * 78
+OUT_DIR = Path(__file__).resolve().parent / "output"
 
 # The gap in the censoring distribution that separates the two enrolment waves.
 PHASE_CUT_DAYS = 1150
+LANDMARKS = (30, 90, 180, 365, 730, 1095, 1460, 1825)
+HAZARD_EDGES = [0, 30, 90, 180, 365, 730, 1095, 2100]
 
 
-def header(text: str) -> None:
-    print(f"\n{RULE}\n{text}\n{RULE}")
-
-
-def question(n: int, text: str) -> None:
-    print(f"\n{SUB}\nQUESTION {n}: {text}\n{SUB}")
-
-
-# ── Q12. Data dictionary ─────────────────────────────────────────────────────
-def q12_data_dictionary(chf: pd.DataFrame) -> pd.DataFrame:
-    question(12, "Produce the data dictionary a reviewer would ask for. What does it\n"
-                 "catch that Table 1 does not?")
-
+# ═══ Q12. Data dictionary ════════════════════════════════════════════════════
+def compute_data_dictionary(chf: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for col in chf.columns:
         s = chf[col]
@@ -86,215 +69,274 @@ def q12_data_dictionary(chf: pd.DataFrame) -> pd.DataFrame:
             role = "predictor"
         else:
             role = "unused"
-
         if pd.api.types.is_numeric_dtype(s):
             kind = "binary" if s.nunique(dropna=True) <= 2 else "continuous"
             rng = f"{s.min():g} to {s.max():g}"
         else:
             kind, rng = "categorical", f"{s.nunique(dropna=True)} levels"
-
         rows.append({"column": col, "role": role, "type": kind,
                      "unit": UNITS.get(col, ""), "n_obs": int(s.notna().sum()),
                      "missing_pct": round(s.isna().mean() * 100, 1),
                      "unique": int(s.nunique(dropna=True)), "range": rng})
+    return pd.DataFrame(rows)
 
-    dd = pd.DataFrame(rows)
+
+def report_data_dictionary(dd: pd.DataFrame) -> None:
+    question(12, "Produce the data dictionary a reviewer would ask for. What does it\n"
+                 "catch that Table 1 does not?")
     print(dd.to_string(index=False))
+    print("\n  Ranges reflect the plausibility bounds applied upstream, so this table")
+    print("  and 02_profile.py Q8 cannot contradict one another.\n")
+    const = dd[dd.unique <= 1]
+    near = dd[(dd.type != "categorical") & dd.unique.between(2, 3)
+              & (dd.role == "predictor")]
+    unassigned = dd[dd.role == "unused"]
+    print(f"  constant / zero-variance columns : {', '.join(const.column) or 'none'}")
+    print(f"  near-constant predictors         : {', '.join(near.column) or 'none'}")
+    print(f"  no role assigned                 : {', '.join(unassigned.column) or 'none'}")
+    dropped = sorted(set(const.column) & set(CANDIDATE_PREDICTORS))
+    if dropped:
+        print(f"\n  -> {', '.join(dropped)} are candidate predictors that are CONSTANT")
+        print("     inside this cohort, because the cohort is defined by restricting")
+        print("     on them. They carry no information here and can make a design")
+        print("     matrix singular. support2.model_predictors() drops them per")
+        print("     cohort; they remain predictors on the full study, where Q4 uses")
+        print("     dzgroup to identify the case-mix mechanism.")
 
-    print("\n  Two checks a stratified Table 1 cannot perform:")
-    const = dd[(dd.unique <= 1)]
-    print(f"    constant / zero-variance columns : "
-          f"{', '.join(const.column) if len(const) else 'none'}")
-    near = dd[(dd.type != 'categorical') & (dd.unique.between(2, 3)) &
-              (dd.role == 'predictor')]
-    print(f"    near-constant predictors         : "
-          f"{', '.join(near.column) if len(near) else 'none'}")
-    return dd
 
-
-# ── Q13. Overall survival ────────────────────────────────────────────────────
-def q13_overall_survival(chf: pd.DataFrame):
-    question(13, "Plot overall survival. Clinical journals reject a Kaplan-Meier curve\n"
-                 "missing one specific element. What is it, and why does its absence\n"
-                 "make the tail unreadable?")
-
+# ═══ Q13. Overall survival ═══════════════════════════════════════════════════
+def compute_survival(chf: pd.DataFrame) -> dict:
     from lifelines import KaplanMeierFitter
 
     km = KaplanMeierFitter().fit(chf[OUTCOME_TIME], chf[OUTCOME_EVENT],
                                  label="CHF cohort")
-    print(f"  n={len(chf):,}  deaths={int(chf[OUTCOME_EVENT].sum()):,}")
-    print(f"  median survival     {km.median_survival_time_:,.0f} days")
-    print(f"  median follow-up    {median_followup(chf[OUTCOME_TIME], chf[OUTCOME_EVENT]):,.0f} days"
-          "  (reverse KM)")
-
-    print("\n  Survival and the number still at risk, by landmark:")
-    print(f"    {'day':>6} {'S(t)':>8} {'95% CI':>18} {'at risk':>9}")
-    for t in (30, 90, 180, 365, 730, 1095, 1460, 1825):
-        s = float(km.predict(t))
-        ci = km.confidence_interval_survival_function_
+    ci = km.confidence_interval_survival_function_
+    rows = []
+    for t in LANDMARKS:
         idx = ci.index[ci.index <= t]
         lo, hi = (ci.loc[idx[-1]].values if len(idx) else (np.nan, np.nan))
-        at_risk = int(((chf[OUTCOME_TIME] >= t)).sum())
-        print(f"    {t:>6} {s*100:>7.1f}% {f'({lo*100:.1f}-{hi*100:.1f})':>18} {at_risk:>9,}")
+        rows.append({"day": t, "survival_pct": float(km.predict(t)) * 100,
+                     "ci_lo": lo * 100, "ci_hi": hi * 100,
+                     "at_risk": int((chf[OUTCOME_TIME] >= t).sum())})
+    return {"km": km, "landmarks": pd.DataFrame(rows),
+            "median_survival": float(km.median_survival_time_),
+            "median_followup": median_followup(chf[OUTCOME_TIME], chf[OUTCOME_EVENT])}
 
+
+def report_survival(r: dict, chf: pd.DataFrame) -> None:
+    question(13, "Plot overall survival. Clinical journals reject a Kaplan-Meier curve\n"
+                 "missing one specific element. What is it, and why does its absence\n"
+                 "make the tail unreadable?")
+    print(f"  n={len(chf):,}  deaths={int(chf[OUTCOME_EVENT].sum()):,}")
+    print(f"  median survival  {r['median_survival']:,.0f} days")
+    print(f"  median follow-up {r['median_followup']:,.0f} days  (reverse KM)")
+    print("\n  Survival and the number still at risk, by landmark:")
+    print(f"    {'day':>6} {'S(t)':>8} {'95% CI':>18} {'at risk':>9}")
+    for _, x in r["landmarks"].iterrows():
+        ci = f"({x.ci_lo:.1f}-{x.ci_hi:.1f})"
+        print(f"    {int(x.day):>6} {x.survival_pct:>7.1f}% {ci:>18} {int(x.at_risk):>9,}")
     print("\n  Watch the right-hand column. That is the answer to the question.")
-    return km
 
 
-# ── Q14. Hazard over time ────────────────────────────────────────────────────
-def q14_hazard_shape(chf: pd.DataFrame):
+# ═══ Q14. Hazard over time ═══════════════════════════════════════════════════
+def compute_hazard(chf: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for lo, hi in zip(HAZARD_EDGES[:-1], HAZARD_EDGES[1:]):
+        at_risk = int((chf[OUTCOME_TIME] > lo).sum())
+        d = int(((chf[OUTCOME_EVENT] == 1)
+                 & chf[OUTCOME_TIME].between(lo, hi, "right")).sum())
+        exposure = np.minimum(chf[OUTCOME_TIME], hi).sub(lo).clip(lower=0).sum()
+        rows.append({"lo": lo, "hi": hi, "deaths": d, "at_risk": at_risk,
+                     "rate_per_100pd": d / exposure * 100 if exposure else np.nan})
+    return pd.DataFrame(rows)
+
+
+def report_hazard(haz: pd.DataFrame) -> None:
     question(14, "When do the deaths happen? Estimate the hazard over time and say\n"
                  "what its shape implies for proportional hazards and for a fixed\n"
                  "prediction horizon.")
-
     print("  Deaths per 100 patient-days at risk, by interval:")
     print(f"    {'interval (days)':>18} {'deaths':>7} {'at risk':>8} {'rate':>9}")
-    edges = [0, 30, 90, 180, 365, 730, 1095, 2100]
-    rows = []
-    for lo, hi in zip(edges[:-1], edges[1:]):
-        at_risk = (chf[OUTCOME_TIME] > lo).sum()
-        d = ((chf[OUTCOME_EVENT] == 1) & chf[OUTCOME_TIME].between(lo, hi, "right")).sum()
-        exposure = np.minimum(chf[OUTCOME_TIME], hi).sub(lo).clip(lower=0).sum()
-        rate = d / exposure * 100 if exposure else np.nan
-        rows.append({"lo": lo, "hi": hi, "deaths": int(d),
-                     "at_risk": int(at_risk), "rate_per_100pd": rate})
-        print(f"    {f'{lo}-{hi}':>18} {d:>7,} {at_risk:>8,} {rate:>9.4f}")
-
-    haz = pd.DataFrame(rows)
-    peak, late = haz.rate_per_100pd.iloc[0], haz.rate_per_100pd.iloc[-1]
-    print(f"\n  Early hazard is {peak/late:.1f}x the late hazard.")
-    return haz
+    for _, x in haz.iterrows():
+        print(f"    {f'{int(x.lo)}-{int(x.hi)}':>18} {int(x.deaths):>7,} "
+              f"{int(x.at_risk):>8,} {x.rate_per_100pd:>9.4f}")
+    ratio = haz.rate_per_100pd.iloc[0] / haz.rate_per_100pd.iloc[-1]
+    print(f"\n  Early hazard is {ratio:.1f}x the late hazard.")
 
 
-# ── Q15. Missingness patterns ────────────────────────────────────────────────
-def q15_missingness_patterns(chf: pd.DataFrame) -> pd.DataFrame:
-    question(15, "Missingness rates say how much is absent. What do missingness\n"
-                 "PATTERNS say that rates cannot?")
-
+# ═══ Q15. Missingness patterns ═══════════════════════════════════════════════
+def compute_missingness_patterns(chf: pd.DataFrame) -> dict:
     cols = [c for c in CANDIDATE_PREDICTORS
             if c in chf and 0.02 < chf[c].isna().mean() < 0.98]
     M = chf[cols].isna()
+    patterns = (M.apply(lambda r: "".join("X" if v else "." for v in r), axis=1)
+                .value_counts())
+    return {"cols": cols, "M": M, "patterns": patterns,
+            "n_distinct": int(M.drop_duplicates().shape[0]),
+            "phi": M.astype(int).corr()}
 
+
+def report_missingness_patterns(r: dict, chf: pd.DataFrame) -> None:
+    question(15, "Missingness rates say how much is absent. What do missingness\n"
+                 "PATTERNS say that rates cannot?")
+    cols = r["cols"]
     print(f"  {len(cols)} variables with non-trivial missingness.")
-    print(f"  Distinct missingness patterns observed: {M.drop_duplicates().shape[0]}"
-          f" (of {2**len(cols):,} possible)")
-
+    print(f"  Distinct patterns observed: {r['n_distinct']} of {2**len(cols):,} possible")
     print("\n  The commonest patterns, as share of the cohort:")
-    pat = (M.apply(lambda r: "".join("X" if v else "." for v in r), axis=1)
-           .value_counts().head(8))
     print(f"    {''.join(c[0].upper() for c in cols)}   <- first letter of each variable")
-    for p, n in pat.items():
+    for p, n in r["patterns"].head(8).items():
         print(f"    {p}  {n:>4,}  {n/len(chf)*100:>5.1f}%")
 
-    print("\n  Pairwise co-occurrence (phi correlation between missing-indicators):")
-    phi = M.astype(int).corr()
-    pairs = (phi.where(~np.eye(len(phi), dtype=bool)).stack()
-             .rename("phi").reset_index()
-             .rename(columns={"level_0": "a", "level_1": "b"}))
+    phi = r["phi"]
+    pairs = (phi.where(~np.eye(len(phi), dtype=bool)).stack().rename("phi")
+             .reset_index().rename(columns={"level_0": "a", "level_1": "b"}))
     pairs = pairs[pairs.a < pairs.b].sort_values("phi", ascending=False).head(8)
+    print("\n  Pairwise co-occurrence (phi between missing-indicators):")
     print(pairs.round(3).to_string(index=False))
-    return phi
 
 
-# ── Q16. The enrolment forensics ─────────────────────────────────────────────
-def q16_enrolment_phase(chf: pd.DataFrame) -> pd.DataFrame:
-    question(16, "01_eda.py offered enrolment phase as an unverified explanation for\n"
-                 "the follow-up imbalance. SUPPORT2 ships no phase column.\n"
-                 "Prove or refute it anyway.")
-
+# ═══ Q16. Enrolment forensics ════════════════════════════════════════════════
+def compute_enrolment(chf: pd.DataFrame) -> dict:
     cens = chf.loc[chf[OUTCOME_EVENT] == 0, OUTCOME_TIME]
-    print("  Administrative censoring happens when a study closes, so censored")
-    print("  follow-up encodes enrolment date. If enrolment came in two waves")
-    print("  closed on one date, this distribution must be bimodal.\n")
     h, edges = np.histogram(cens, bins=np.arange(0, 2200, 180))
-    for c, e in zip(h, edges):
-        bar = "#" * int(c / 2)
-        marker = "  <-- gap" if c <= 2 and e > 500 else ""
-        print(f"    {e:>5.0f}-{e+180:>5.0f}d  {bar:<38} {c:>3}{marker}")
+    hist = pd.Series(h, index=edges[:-1])
+    interior = hist[(hist.index > 500) & (hist.index < 1800)]
 
-    gap = pd.Series(h, index=edges[:-1])
-    interior = gap[(gap.index > 500) & (gap.index < 1800)]
-    print(f"\n  Emptiest interior bin: {interior.idxmin():.0f}-{interior.idxmin()+180:.0f} days "
-          f"({interior.min()} patients), against neighbours of "
-          f"{gap.get(interior.idxmin()-180, 0)} and {gap.get(interior.idxmin()+180, 0)}.")
-
-    chf = chf.copy()
-    chf["wave"] = np.where(chf[OUTCOME_TIME] >= PHASE_CUT_DAYS, "early enrolment",
-                           "late enrolment")
-    print(f"\n  Assigning a wave proxy at {PHASE_CUT_DAYS} days and checking the")
-    print("  three 'artefact' variables against the three 'real signal' ones:")
+    wave = np.where(chf[OUTCOME_TIME] >= PHASE_CUT_DAYS, "early", "late")
+    sub = chf.assign(wave=wave)
+    sub = sub[sub[OUTCOME_EVENT] == 0]
     rows = []
     for col in ["bun", "urine", "glucose", "income", "adlp", "edu"]:
         if col not in chf:
             continue
-        sub = chf[chf[OUTCOME_EVENT] == 0]
-        early = (sub.loc[sub.wave == "early enrolment", col].isna().mean())
-        late = (sub.loc[sub.wave == "late enrolment", col].isna().mean())
-        rows.append({"variable": col, "missing_early_wave": early * 100,
-                     "missing_late_wave": late * 100, "difference_pp": (early - late) * 100})
-    tbl = pd.DataFrame(rows)
-    print(tbl.round(1).to_string(index=False))
+        early = sub.loc[sub.wave == "early", col].isna().mean() * 100
+        late = sub.loc[sub.wave == "late", col].isna().mean() * 100
+        rows.append({"variable": col, "missing_early_wave": early,
+                     "missing_late_wave": late, "difference_pp": early - late})
+
+    converse = {}
+    for lbl, s in (("recorded", chf[chf.bun.notna()]), ("missing", chf[chf.bun.isna()])):
+        c = s.loc[s[OUTCOME_EVENT] == 0, OUTCOME_TIME]
+        converse[lbl] = {"n": len(c),
+                         "pct_early": float(np.mean(c >= PHASE_CUT_DAYS) * 100) if len(c) else np.nan}
+    return {"hist": hist, "gap_bin": int(interior.idxmin()), "gap_n": int(interior.min()),
+            "gap_neighbours": (int(hist.get(interior.idxmin() - 180, 0)),
+                               int(hist.get(interior.idxmin() + 180, 0))),
+            "table": pd.DataFrame(rows), "converse": converse}
+
+
+def report_enrolment(r: dict) -> None:
+    question(16, "01_eda.py offered enrolment phase as an unverified explanation for\n"
+                 "the follow-up imbalance. SUPPORT2 ships no phase column.\n"
+                 "Prove or refute it anyway.")
+    print("  Administrative censoring happens when a study closes, so censored")
+    print("  follow-up encodes enrolment date. If enrolment came in two waves")
+    print("  closed on one date, this distribution must be bimodal.\n")
+    for e, c in r["hist"].items():
+        marker = "  <-- gap" if c <= 2 and e > 500 else ""
+        print(f"    {e:>5.0f}-{e+180:>5.0f}d  {'#' * int(c/2):<38} {c:>3}{marker}")
+    lo, hi = r["gap_neighbours"]
+    print(f"\n  Emptiest interior bin: {r['gap_bin']}-{r['gap_bin']+180} days "
+          f"({r['gap_n']} patients), against neighbours of {lo} and {hi}.")
+
+    print(f"\n  Assigning a wave proxy at {PHASE_CUT_DAYS} days, and checking the")
+    print("  'artefact' variables against the 'real signal' ones:")
+    print(r["table"].round(1).to_string(index=False))
 
     print("\n  And the converse -- where do the BUN-missing patients sit?")
-    for lbl, s in (("BUN recorded", chf[chf.bun.notna()]),
-                   ("BUN not recorded", chf[chf.bun.isna()])):
-        c = s.loc[s[OUTCOME_EVENT] == 0, OUTCOME_TIME]
-        if not len(c):
-            continue
-        print(f"    {lbl:<18} censored n={len(c):>4,}   "
-              f"in early-enrolment wave: {np.mean(c >= PHASE_CUT_DAYS)*100:>5.1f}%")
-    return tbl
+    for lbl, d in r["converse"].items():
+        print(f"    BUN {lbl:<9} censored n={d['n']:>4,}   "
+              f"in early-enrolment wave: {d['pct_early']:>5.1f}%")
 
 
-# ── Q17. VIF, honestly ───────────────────────────────────────────────────────
-def q17_vif_imputed(chf: pd.DataFrame) -> pd.DataFrame:
-    question(17, "The VIF table in 02_profile.py rests on complete cases only, under\n"
-                 "10% of the training cohort. Recompute it honestly and say whether\n"
-                 "the conclusion holds.")
-
+# ═══ Q17. VIF, honestly ══════════════════════════════════════════════════════
+def compute_vif_imputed(chf: pd.DataFrame) -> dict:
     from sklearn.experimental import enable_iterative_imputer  # noqa: F401
     from sklearn.impute import IterativeImputer
     from statsmodels.stats.outliers_influence import variance_inflation_factor
 
     num = [c for c in CANDIDATE_PREDICTORS
-           if c in chf and pd.api.types.is_numeric_dtype(chf[c])
-           and chf[c].nunique() > 2]
+           if c in chf and pd.api.types.is_numeric_dtype(chf[c]) and chf[c].nunique() > 2]
     X = chf[num]
-    print(f"  Complete cases: {len(X.dropna()):,} of {len(X):,} "
-          f"({len(X.dropna())/len(X)*100:.1f}%)")
-
-    imp = IterativeImputer(max_iter=20, random_state=20260901, sample_posterior=False)
+    imp = IterativeImputer(max_iter=20, random_state=20260901)
     Xi = pd.DataFrame(imp.fit_transform(X), columns=num, index=X.index)
 
     def vif_of(frame: pd.DataFrame) -> pd.Series:
         Z = ((frame - frame.mean()) / frame.std()).assign(_c=1.0)
-        return pd.Series(
-            [variance_inflation_factor(Z.values, i)
-             for i, c in enumerate(Z.columns) if c != "_c"],
-            index=[c for c in Z.columns if c != "_c"])
+        return pd.Series([variance_inflation_factor(Z.values, i)
+                          for i, c in enumerate(Z.columns) if c != "_c"],
+                         index=[c for c in Z.columns if c != "_c"])
 
-    comp = vif_of(X.dropna()) if len(X.dropna()) > len(num) + 5 else pd.Series(dtype=float)
+    cc = X.dropna()
+    comp = vif_of(cc) if len(cc) > len(num) + 5 else pd.Series(dtype=float)
     out = pd.DataFrame({"VIF_complete_case": comp, "VIF_imputed": vif_of(Xi)})
     out["change"] = out.VIF_imputed - out.VIF_complete_case
-    out = out.sort_values("VIF_imputed", ascending=False)
+    return {"table": out.sort_values("VIF_imputed", ascending=False),
+            "n_complete": len(cc), "n_total": len(X)}
+
+
+def report_vif(r: dict) -> None:
+    question(17, "The VIF table in 02_profile.py rests on complete cases only, well\n"
+                 "under a fifth of the training cohort. Recompute it honestly and\n"
+                 "say whether the conclusion holds.")
+    print(f"  Complete cases: {r['n_complete']:,} of {r['n_total']:,} "
+          f"({r['n_complete']/r['n_total']*100:.1f}%)")
     print("\n  Single imputation is used here as a DIAGNOSTIC only -- it understates")
     print("  uncertainty and is not the modelling strategy (that is MICE inside folds).")
-    print(out.round(2).to_string())
-    worst = out.VIF_imputed.max()
+    print(r["table"].round(2).to_string())
+    worst = r["table"].VIF_imputed.max()
     print(f"\n  Highest VIF on imputed data: {worst:.2f} "
           f"({'no action needed' if worst < 5 else 'inspect'}).")
-    return out
 
 
-# ── Figures ──────────────────────────────────────────────────────────────────
-def figure_survival(chf: pd.DataFrame, haz: pd.DataFrame):
+# ═══ Facts ═══════════════════════════════════════════════════════════════════
+def collect_facts(surv: dict, haz: pd.DataFrame, pat: dict, enrol: dict,
+                  vif: dict, chf: pd.DataFrame) -> Facts:
+    lm = surv["landmarks"].set_index("day")
+    e = enrol["table"].set_index("variable")
+    lo, hi = enrol["gap_neighbours"]
+    return Facts(
+        n_chf=f"{len(chf):,}",
+        n_deaths=f"{int(chf[OUTCOME_EVENT].sum()):,}",
+        median_followup=f"{surv['median_followup']:,.0f}",
+        at_risk_30=f"{int(lm.loc[30, 'at_risk']):,}",
+        at_risk_1825=f"{int(lm.loc[1825, 'at_risk']):,}",
+        surv_365=f"{lm.loc[365, 'survival_pct']:.1f}",
+        surv_1825=f"{lm.loc[1825, 'survival_pct']:.1f}",
+        hazard_ratio=f"{haz.rate_per_100pd.iloc[0] / haz.rate_per_100pd.iloc[-1]:.1f}",
+        n_patterns=str(pat["n_distinct"]),
+        n_miss_vars=str(len(pat["cols"])),
+        n_possible=f"{2**len(pat['cols']):,}",
+        gap_bin=f"{enrol['gap_bin']}-{enrol['gap_bin']+180}",
+        gap_n=str(enrol["gap_n"]),
+        gap_lo=str(lo), gap_hi=str(hi),
+        bun_early=f"{e.loc['bun','missing_early_wave']:.1f}",
+        bun_late=f"{e.loc['bun','missing_late_wave']:.1f}",
+        urine_early=f"{e.loc['urine','missing_early_wave']:.1f}",
+        urine_late=f"{e.loc['urine','missing_late_wave']:.1f}",
+        glucose_early=f"{e.loc['glucose','missing_early_wave']:.1f}",
+        glucose_late=f"{e.loc['glucose','missing_late_wave']:.1f}",
+        adlp_early=f"{e.loc['adlp','missing_early_wave']:.1f}",
+        adlp_late=f"{e.loc['adlp','missing_late_wave']:.1f}",
+        income_early=f"{e.loc['income','missing_early_wave']:.1f}",
+        income_late=f"{e.loc['income','missing_late_wave']:.1f}",
+        bun_missing_early_pct=f"{enrol['converse']['missing']['pct_early']:.1f}",
+        bun_recorded_early_pct=f"{enrol['converse']['recorded']['pct_early']:.1f}",
+        vif_complete_n=f"{vif['n_complete']:,}",
+        vif_complete_pct=f"{vif['n_complete']/vif['n_total']*100:.1f}",
+        vif_max=f"{vif['table'].VIF_imputed.max():.2f}",
+        phase_cut=str(PHASE_CUT_DAYS),
+    )
+
+
+# ═══ Figures ═════════════════════════════════════════════════════════════════
+def figure_survival(chf: pd.DataFrame, surv: dict, haz: pd.DataFrame):
     import matplotlib.pyplot as plt
-    from lifelines import KaplanMeierFitter
     from lifelines.plotting import add_at_risk_counts
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.5, 5.6),
                                    gridspec_kw={"width_ratios": [1.15, 1]})
-    km = KaplanMeierFitter().fit(chf[OUTCOME_TIME], chf[OUTCOME_EVENT], label="CHF cohort")
+    km = surv["km"]
     km.plot_survival_function(ax=ax1, color=viz.SERIES_BLUE, ci_alpha=0.15, lw=2.2)
     ax1.set_xlim(0, 2029)
     ax1.set_ylim(0, 1)
@@ -305,7 +347,6 @@ def figure_survival(chf: pd.DataFrame, haz: pd.DataFrame):
     viz.despine(ax1)
     add_at_risk_counts(km, ax=ax1, rows_to_show=["At risk"], fontsize=8)
 
-    mid = (haz.lo + haz.hi) / 2
     ax2.step(haz.hi, haz.rate_per_100pd, where="pre", color=viz.SERIES_ORANGE, lw=2.2)
     ax2.fill_between(haz.hi, 0, haz.rate_per_100pd, step="pre",
                      color=viz.SERIES_ORANGE, alpha=0.15)
@@ -316,15 +357,18 @@ def figure_survival(chf: pd.DataFrame, haz: pd.DataFrame):
     ax2.set_title("Hazard is front-loaded, not constant")
     viz.despine(ax2)
 
+    lm = surv["landmarks"].set_index("day")
+    ratio = haz.rate_per_100pd.iloc[0] / haz.rate_per_100pd.iloc[-1]
     fig.tight_layout()
-    viz.caption(fig, "Left: the at-risk row is what makes the tail interpretable -- by day 1,825 the curve\n"
-                     "rests on a small fraction of the cohort while looking no less authoritative than at\n"
-                     "day 30. Right: early hazard is 6x the late hazard, which bears on horizon choice.",
+    viz.caption(fig, f"CHF training cohort, n={len(chf):,}. Left: the at-risk row is what makes the tail "
+                     f"interpretable --\nby day 1,825 the curve rests on {int(lm.loc[1825,'at_risk'])} patients "
+                     f"while looking no less authoritative than at\nday 30, where it rests on "
+                     f"{int(lm.loc[30,'at_risk'])}. Right: early hazard is {ratio:.1f}x the late hazard.",
                 y=-0.10)
     return viz.save(fig, "07_survival_overview.png")
 
 
-def figure_enrolment(chf: pd.DataFrame):
+def figure_enrolment(chf: pd.DataFrame, enrol: dict):
     import matplotlib.pyplot as plt
 
     cens = chf[chf[OUTCOME_EVENT] == 0]
@@ -351,13 +395,16 @@ def figure_enrolment(chf: pd.DataFrame):
     ax2.legend(loc="upper left")
     viz.despine(ax2)
 
-    viz.caption(fig, "CHF training cohort, censored patients only. The gap near 1,150 days separates two\n"
-                     "enrolment waves. 98.7% of patients missing BUN fall in the early wave; none of those\n"
-                     "with it recorded do. BUN is 100% missing in that wave -- a protocol, not a patient.")
+    e = enrol["table"].set_index("variable")
+    viz.caption(fig, f"CHF training cohort, censored patients only (n={len(cens):,}). The gap near "
+                     f"{PHASE_CUT_DAYS} days separates\ntwo enrolment waves. BUN is "
+                     f"{e.loc['bun','missing_early_wave']:.1f}% missing in the early wave against "
+                     f"{e.loc['bun','missing_late_wave']:.1f}% in the late one --\na collection protocol, "
+                     f"not a property of the patient.")
     return viz.save(fig, "08_enrolment_waves.png")
 
 
-def figure_missingness_patterns(phi: pd.DataFrame):
+def figure_missingness_patterns(phi: pd.DataFrame, n: int):
     import matplotlib.pyplot as plt
 
     order = phi.columns.tolist()
@@ -376,8 +423,8 @@ def figure_missingness_patterns(phi: pd.DataFrame):
     cb.set_label("phi (correlation between missing-indicators)", fontsize=9)
     cb.outline.set_visible(False)
     ax.set_title("Which variables go missing together")
-    viz.caption(fig, "Blocks of near-1.0 correlation mean the values were absent as a group, which points\n"
-                     "to a collection protocol rather than to anything about the individual patient.")
+    viz.caption(fig, f"CHF training cohort, n={n:,}. Blocks of near-1.0 correlation mean the values were absent\n"
+                     f"as a group, which points to a collection protocol rather than to individual patients.")
     return viz.save(fig, "09_missingness_patterns.png")
 
 
@@ -395,57 +442,65 @@ A12. WHAT THE DATA DICTIONARY CATCHES
     which nobody has assigned a role. Those are the errors that survive review
     precisely because the interesting table looks fine.
 
-    The unglamorous columns are the ones that earn their place: n_obs, unique,
-    range, unit. A creatinine range of 0.3 to 18.4 mg/dL is plausible; the same
-    numbers labelled umol/L would not be. Without the unit column nobody can
-    check that, and plausibility bounds asserted without units are unreviewable.
+    The unglamorous columns earn their place: n_obs, unique, range, unit. A
+    creatinine range of 0.3 to 20 mg/dL is plausible; the same numbers labelled
+    umol/L would not be. Without the unit column nobody can check that, and
+    plausibility bounds asserted without units are unreviewable.
+
+    Note also what this table must NOT do, which an earlier version of this
+    project got wrong. It once published an albumin maximum of 29.0 g/dL, two
+    sections after the write-up called that value incompatible with life,
+    because the plausibility bounds lived in one script and were applied in one
+    function. A dictionary that contradicts the data-quality section is worse
+    than no dictionary, because it looks like diligence. The bounds now live in
+    support2.PLAUSIBLE_BOUNDS and are applied by the shared entry point, so the
+    two cannot disagree.
 
 A13. WHAT THE CURVE IS MISSING
     The numbers at risk. A Kaplan-Meier plot without a risk table underneath it
     will be sent back by any competent reviewer, and the reason is visible in
     this cohort's tail.
 
-    Survival at day 1,825 is estimated from a small remnant of the original
-    cohort. The curve is drawn at full width and full confidence, and it looks
-    exactly as authoritative at day 1,825 as at day 30 -- but one estimate rests
-    on nearly everyone and the other on a handful. A reader cannot see the
-    difference from the line alone, and the confidence band understates it
-    because it narrows on the survival scale as the estimate approaches zero.
+    Survival at day 1,825 is estimated at {surv_1825}% -- from {at_risk_1825}
+    patients. At day 30 the same curve rests on {at_risk_30}. It is drawn at
+    full width and full confidence at both, and looks exactly as authoritative
+    in each place. A reader cannot see the difference from the line alone, and
+    the confidence band understates it because it narrows on the survival scale
+    as the estimate approaches zero.
 
     The at-risk row restores the denominator. It is the single most common
     reason survival figures are rejected, and it costs one line of code.
 
     Report landmark estimates with confidence intervals too, rather than only a
-    median. In a cohort this sick the median arrives early and the clinically
-    interesting question -- what fraction is alive at a year -- lives elsewhere
-    on the curve.
+    median. In a cohort this sick the median arrives early, and the clinically
+    interesting question -- what fraction is alive at a year, here {surv_365}%
+    -- lives elsewhere on the curve.
 
 A14. WHAT THE HAZARD SHAPE TELLS YOU
-    The death rate is heavily front-loaded: the first month runs at many times
-    the rate of the second and third years. This is a discharge cohort of
-    critically ill patients, so that is clinically unsurprising, but it has two
-    concrete consequences.
+    The death rate is heavily front-loaded: the first interval runs at
+    {hazard_ratio} times the rate of the last. This is a cohort of critically
+    ill patients, so that is clinically unsurprising, but it has two concrete
+    consequences.
 
-    For a proportional-hazards model: proportionality is an assumption about
-    the RATIO of hazards between groups, not about the shape of the baseline
-    hazard, so a falling baseline is not itself a violation. Cox handles it
-    without complaint. But a steeply changing baseline is where non-
-    proportionality tends to hide -- a covariate that matters intensely in the
-    first month and little afterwards will still produce a plausible-looking
-    single hazard ratio. Test with Schoenfeld residuals rather than assuming.
+    For a proportional-hazards model: proportionality is an assumption about the
+    RATIO of hazards between groups, not about the shape of the baseline hazard,
+    so a falling baseline is not itself a violation. Cox handles it without
+    complaint. But a steeply changing baseline is where non-proportionality
+    tends to hide -- a covariate that matters intensely in the first month and
+    little afterwards still yields a plausible-looking single hazard ratio. Test
+    with Schoenfeld residuals rather than assuming.
 
-    For horizon choice: most of the events are early, so a 30-day or 90-day
-    horizon is where the data is dense and where a discharge decision actually
-    sits. A five-year horizon is estimable here but rests on a thin tail and
-    answers a question no one asks at the bedside.
+    For horizon choice: most events are early, so a 30-day or 90-day horizon is
+    where the data is dense and where a discharge decision actually sits. A
+    five-year horizon is estimable but rests on {at_risk_1825} patients and
+    answers a question nobody asks at the bedside.
 
 A15. WHAT PATTERNS SAY THAT RATES CANNOT
-    A rate is a marginal. It tells you a variable is 53% missing and nothing
+    A rate is a marginal. It tells you a variable is half missing and nothing
     about whether those are the same patients each time.
 
-    The pattern table shows the missingness is highly structured: a small
-    number of distinct patterns account for most of the cohort, against a
-    combinatorial space of possibilities. And the phi matrix shows blocks of
+    Across {n_miss_vars} variables there are {n_possible} possible missingness
+    patterns and only {n_patterns} occur. The phi matrix shows blocks of
     near-perfect co-occurrence -- variables absent together, as a set.
 
     That structure is diagnostic. Missingness caused by individual patients --
@@ -458,107 +513,117 @@ A15. WHAT PATTERNS SAY THAT RATES CANNOT
     Q16 identifies the process.
 
 A16. THE ENROLMENT WAVES, PROVEN
-    The hypothesis is confirmed, and it can be confirmed without a phase column
-    because censoring times carry the information.
+    Confirmed, and confirmable without a phase column because censoring times
+    carry the information.
 
     Administrative censoring occurs when the study closes, not when a patient
-    leaves. So for censored patients, follow-up duration is a direct function
-    of enrolment date: enrol early, be observed longer. If enrolment came in
-    two waves against a single closing date, censored follow-up must be
-    bimodal -- and it is, with an interior interval near 1,150 days that is
-    essentially empty while its neighbours hold dozens of patients. A single
-    continuous accrual cannot produce that gap.
+    leaves. So for censored patients, follow-up duration is a direct function of
+    enrolment date: enrol early, be observed longer. If enrolment came in two
+    waves against a single closing date, censored follow-up must be bimodal --
+    and it is, with the interval at {gap_bin} days holding {gap_n} patients
+    against neighbours of {gap_lo} and {gap_hi}. A single continuous accrual
+    cannot produce that gap.
 
-    Assigning a wave proxy at the gap separates the variables far more sharply
-    than Q5 could. This is not a difference in degree, it is close to
+    Assigning a wave proxy at {phase_cut} days separates the variables far more
+    sharply than Q5 could. This is not a difference of degree, it is close to
     deterministic:
 
-        bun      100.0% missing in the early wave vs 0.9% in the late
-        urine    100.0% vs  9.1%
-        glucose  100.0% vs  6.1%
+        bun      {bun_early}% missing early vs {bun_late}% late
+        urine    {urine_early}% vs {urine_late}%
+        glucose  {glucose_early}% vs {glucose_late}%
 
     against the variables that survived Q5:
 
-        adlp      31.5% vs 23.0%
-        income    27.5% vs 21.7%
+        adlp     {adlp_early}% vs {adlp_late}%
+        income   {income_early}% vs {income_late}%
 
-    A 100%-to-1% split is not a measurement pattern. It is a protocol. Those
-    three assays were simply not part of the early data-collection instrument,
-    and the converse confirms it from the other direction: no censored patient
-    with BUN recorded falls in the early wave, and 98.7% of those missing it do.
+    A hundred-to-one split is not a measurement pattern. It is a protocol: those
+    assays were not part of the early collection instrument. The converse
+    confirms it from the other direction -- {bun_recorded_early_pct}% of
+    censored patients with BUN recorded fall in the early wave, against
+    {bun_missing_early_pct}% of those missing it.
 
     So the mechanism is established rather than speculated, and it is stronger
-    than "informative missingness" ever was. Their missingness records WHEN a
-    patient was enrolled. Enrolling earlier means being observed longer, which
-    means a higher chance of having died before the study closed. Every step of
-    the spurious association is now visible and none of it involves the patient.
+    than "informative missingness" ever was. Missing BUN records WHEN a patient
+    was enrolled. Enrolling earlier means being observed longer, which means a
+    higher chance of having died before the study closed. Every step of the
+    spurious association is visible and none of it involves the patient.
 
-    This is the difference between a limitation and a finding. 01_eda.py could
-    only say the association was not causal. It can now say what produced it,
-    and that a missingness indicator on BUN would be a covariate for calendar
-    time wearing a clinical label.
-
-    Stated honestly: the wave assignment is a proxy inferred from censoring,
-    not a recorded field, and it can only be assigned to censored patients --
-    a patient who died before the closing date reveals nothing about enrolment
-    date. That is a real limitation of the proof. It does not weaken the
+    Stated honestly: the wave assignment is a proxy inferred from censoring, not
+    a recorded field, and it can only be assigned to censored patients -- a
+    patient who died before the closing date reveals nothing about their
+    enrolment date. That is a real limit on the proof. It does not weaken the
     conclusion, because the mechanism only needs to explain the censored
     patients to account for the imbalance in observation windows.
 
 A17. VIF, HONESTLY
-    The earlier table was computed on 92 of 978 training patients, and Q3-Q5
-    established those are not a random 9%. A diagnostic measured on a
-    non-random subsample is not evidence about the cohort. Q16 sharpens the
-    point: complete cases are overwhelmingly late-wave patients, because three
-    of the variables required for completeness were never collected in the
-    early wave. "Complete case" here is very close to a synonym for "enrolled
-    after 1992".
+    The complete-case table rests on {vif_complete_n} of the training cohort
+    ({vif_complete_pct}%), and Q3-Q5 established those are not a random sample.
+    A diagnostic measured on a non-random subsample is not evidence about the
+    cohort. Q16 sharpens the point: complete cases are overwhelmingly late-wave
+    patients, because three of the variables required for completeness were
+    never collected in the early wave. "Complete case" here is close to a
+    synonym for "enrolled after the protocol changed".
 
-    Recomputed on imputed data across all 978, the conclusion happens to hold:
-    nothing approaches the conventional thresholds. But note that this was not
-    knowable in advance -- it had to be checked, and the check could have gone
-    the other way.
+    Recomputed on imputed data across the full training cohort, the conclusion
+    happens to hold -- the maximum VIF is {vif_max}, nowhere near the
+    conventional thresholds. But that was not knowable in advance. It had to be
+    checked, and it could have gone the other way.
 
-    Two caveats to state rather than bury. Single imputation is used here
-    because this is a diagnostic, and it understates uncertainty; the modelling
-    strategy remains MICE fitted inside cross-validation folds. And VIF
-    measures only linear dependence among the predictors as entered, so it says
-    nothing about the spline terms Q10 justified for creatinine, whose basis
-    functions are collinear with each other by construction and are meant to be.
+    Two caveats to state rather than bury. Single imputation is used because
+    this is a diagnostic and it understates uncertainty; the modelling strategy
+    remains MICE fitted inside cross-validation folds. And VIF measures only
+    linear dependence among predictors as entered, so it says nothing about the
+    spline terms Q10 justified for creatinine, whose basis functions are
+    collinear with one another by construction and are meant to be.
 
     The general habit: when a diagnostic rests on a subset, report the subset
-    size next to the diagnostic. A reassuring number attached to 14% of the
-    cohort is not reassurance, and the reader cannot detect the problem unless
-    you show them the denominator.
+    size beside it. A reassuring number attached to a tenth of the cohort is not
+    reassurance, and the reader cannot detect the problem unless you show the
+    denominator.
 {rule}
 """
 
 
 def main() -> None:
     viz.apply_style()
-    full = load_support2()
-    chf = chf_cohort(full[make_split(full) == "train"])
+    configure_pandas()
+    cohort = analysis_frames()
+    chf = cohort.chf_train
 
     header("SUPPORT2 -- data dictionary, survival description, enrolment forensics")
     print(f"  CHF TRAINING cohort: {len(chf):,} patients, "
           f"{int(chf[OUTCOME_EVENT].sum()):,} deaths")
-    print("  The 30% held-out partition is not read here (seed 20260901).")
+    print(f"  {cohort.n_voided} implausible cells set to missing upstream.")
+    print("  The 30% held-out partition is never returned by analysis_frames().")
 
-    q12_data_dictionary(chf)
-    q13_overall_survival(chf)
-    haz = q14_hazard_shape(chf)
-    phi = q15_missingness_patterns(chf)
-    q16_enrolment_phase(chf)
-    q17_vif_imputed(chf)
+    dd = compute_data_dictionary(chf)
+    report_data_dictionary(dd)
+
+    surv = compute_survival(chf)
+    report_survival(surv, chf)
+
+    haz = compute_hazard(chf)
+    report_hazard(haz)
+
+    pat = compute_missingness_patterns(chf)
+    report_missingness_patterns(pat, chf)
+
+    enrol = compute_enrolment(chf)
+    report_enrolment(enrol)
+
+    vif = compute_vif_imputed(chf)
+    report_vif(vif)
 
     header("FIGURES")
-    for path in (figure_survival(chf, haz),
-                 figure_enrolment(chf),
-                 figure_missingness_patterns(phi)):
+    for path in (figure_survival(chf, surv, haz),
+                 figure_enrolment(chf, enrol),
+                 figure_missingness_patterns(pat["phi"], len(chf))):
         print(f"  wrote {path.relative_to(Path(__file__).resolve().parent)}")
 
-    print(ANSWERS.format(rule=RULE))
+    print(ANSWERS.format(rule=RULE,
+                         **collect_facts(surv, haz, pat, enrol, vif, chf)))
 
 
 if __name__ == "__main__":
-    main()
+    run_and_capture(main, OUT_DIR / "03_cohort.txt")

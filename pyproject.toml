@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chf-prognosis"
+version = "0.3.0"
+description = "Clinical prediction modelling on SUPPORT2: EDA, missingness mechanism, functional form"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas==2.2.2",
+    "numpy==2.0.0",
+    "scipy==1.17.1",
+    "matplotlib==3.9.0",
+    "statsmodels==0.15.0",
+    "scikit-learn==1.8.0",
+    "xgboost==3.2.0",
+    "lifelines==0.30.3",
+    "ucimlrepo==0.0.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+# The analysis modules live in src/ and are installed as top-level modules by
+# `pip install -e .`. This exists to delete the sys.path.insert(...) preamble
+# that used to sit at the top of every script -- a path hack is a packaging
+# problem wearing a disguise, and it breaks the moment anything is run from a
+# different working directory.
+[tool.setuptools]
+package-dir = { "" = "src" }
+py-modules = ["support2", "stats_utils", "report", "viz"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    # Convergence failures must surface, never be swallowed globally.
+    "error::statsmodels.tools.sm_exceptions.ConvergenceWarning",
+]

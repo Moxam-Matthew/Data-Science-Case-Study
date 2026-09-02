@@ -1,0 +1,376 @@
+
+==============================================================================
+SUPPORT2 -- data dictionary, survival description, enrolment forensics
+==============================================================================
+  CHF TRAINING cohort: 978 patients, 599 deaths
+  349 implausible cells set to missing upstream.
+  The 30% held-out partition is never returned by analysis_frames().
+
+------------------------------------------------------------------------------
+QUESTION 12: Produce the data dictionary a reviewer would ask for. What does it
+catch that Table 1 does not?
+------------------------------------------------------------------------------
+  column      role        type                       unit  n_obs  missing_pct  unique                  range
+     age predictor  continuous                      years    978          0.0     950       19.14 to 101.848
+   death   outcome      binary                               978          0.0       2                 0 to 1
+     sex predictor categorical                               978          0.0       2               2 levels
+hospdead  excluded      binary                               978          0.0       2                 0 to 1
+    slos  excluded  continuous                       days    978          0.0      59               3 to 261
+  d.time   outcome  continuous                       days    978          0.0     685              3 to 2028
+ dzgroup predictor categorical                               978          0.0       1               1 levels
+ dzclass predictor categorical                               978          0.0       1               1 levels
+  num.co predictor  continuous                      count    978          0.0      10                 0 to 9
+     edu predictor  continuous         years of schooling    845         13.6      25                0 to 31
+  income predictor categorical                               677         30.8       4               4 levels
+   scoma predictor  continuous SUPPORT coma score (0-100)    978          0.0       8               0 to 100
+ charges  excluded  continuous                               967          1.1     955      1314.45 to 481475
+  totcst  excluded  continuous                               910          7.0     910            0 to 247741
+ totmcst  excluded  continuous                               586         40.1     576            0 to 203413
+ avtisst  excluded  continuous                               958          2.0     142                2 to 63
+    race predictor categorical                               976          0.2       5               5 levels
+     sps  excluded  continuous                               978          0.0     248     7.89941 to 52.6953
+     aps  excluded  continuous                               978          0.0      67                3 to 79
+  surv2m  excluded  continuous                               978          0.0     325 0.00199986 to 0.969971
+  surv6m  excluded  continuous                               978          0.0     430          0 to 0.947998
+    hday predictor  continuous                       days    978          0.0      12                1 to 27
+diabetes predictor      binary                               978          0.0       2                 0 to 1
+dementia predictor      binary                               978          0.0       2                 0 to 1
+      ca predictor categorical                               978          0.0       3               3 levels
+   prg2m  excluded  continuous                               723         26.1      28                 0 to 1
+   prg6m  excluded  continuous                               727         25.7      36                 0 to 1
+     dnr predictor categorical                               975          0.3       3               3 levels
+  dnrday  excluded  continuous                               975          0.3      59              -1 to 261
+  meanbp predictor  continuous                       mmHg    976          0.2     115              22 to 167
+    wblc predictor  continuous                    10^3/uL    947          3.2     217    0.189972 to 95.2969
+     hrt predictor  continuous                  beats/min    974          0.4     113              25 to 225
+    resp predictor  continuous                breaths/min    974          0.4      39                4 to 52
+    temp predictor  continuous                       degC    978          0.0      58     34.0938 to 40.2969
+    pafi predictor  continuous            PaO2/FiO2 ratio    621         36.5     374          41 to 648.125
+     alb predictor  continuous                       g/dL    535         45.3      37               1 to 5.5
+    bili predictor  continuous                      mg/dL    640         34.6      78        0.0999908 to 47
+    crea predictor  continuous                      mg/dL    975          0.3      68    0.299988 to 18.3984
+     sod predictor  continuous                      mEq/L    978          0.0      38             117 to 164
+      ph predictor  continuous                   pH units    632         35.4      46     7.09961 to 7.61914
+ glucose predictor  continuous                      mg/dL    437         55.3     201              35 to 971
+     bun predictor  continuous                      mg/dL    457         53.3      98               2 to 171
+   urine predictor  continuous                     mL/24h    413         57.8     305              0 to 7495
+    adlp predictor  continuous            ADL count (0-7)    664         32.1       8                 0 to 7
+    adls predictor  continuous            ADL count (0-7)    623         36.3       8                 0 to 7
+   sfdm2  excluded categorical                               783         19.9       4               4 levels
+   adlsc  excluded  continuous                               978          0.0     200                 0 to 7
+
+  Ranges reflect the plausibility bounds applied upstream, so this table
+  and 02_profile.py Q8 cannot contradict one another.
+
+  constant / zero-variance columns : dzgroup, dzclass
+  near-constant predictors         : diabetes, dementia
+  no role assigned                 : none
+
+  -> dzclass, dzgroup are candidate predictors that are CONSTANT
+     inside this cohort, because the cohort is defined by restricting
+     on them. They carry no information here and can make a design
+     matrix singular. support2.model_predictors() drops them per
+     cohort; they remain predictors on the full study, where Q4 uses
+     dzgroup to identify the case-mix mechanism.
+
+------------------------------------------------------------------------------
+QUESTION 13: Plot overall survival. Clinical journals reject a Kaplan-Meier curve
+missing one specific element. What is it, and why does its absence
+make the tail unreadable?
+------------------------------------------------------------------------------
+  n=978  deaths=599
+  median survival  667 days
+  median follow-up 1,348 days  (reverse KM)
+
+  Survival and the number still at risk, by landmark:
+       day     S(t)             95% CI   at risk
+        30    90.7%        (88.7-92.4)       891
+        90    82.4%        (79.9-84.7)       806
+       180    74.6%        (71.8-77.2)       730
+       365    63.4%        (60.3-66.3)       612
+       730    48.5%        (45.2-51.6)       351
+      1095    39.7%        (36.3-43.1)       206
+      1460    31.5%        (28.0-35.0)       135
+      1825    26.9%        (23.2-30.7)        53
+
+  Watch the right-hand column. That is the answer to the question.
+
+------------------------------------------------------------------------------
+QUESTION 14: When do the deaths happen? Estimate the hazard over time and say
+what its shape implies for proportional hazards and for a fixed
+prediction horizon.
+------------------------------------------------------------------------------
+  Deaths per 100 patient-days at risk, by interval:
+       interval (days)  deaths  at risk      rate
+                  0-30      91      978    0.3248
+                 30-90      81      887    0.1614
+                90-180      76      806    0.1108
+               180-365     110      730    0.0888
+               365-730     130      611    0.0752
+              730-1095      54      351    0.0541
+             1095-2100      57      206    0.0539
+
+  Early hazard is 6.0x the late hazard.
+
+------------------------------------------------------------------------------
+QUESTION 15: Missingness rates say how much is absent. What do missingness
+PATTERNS say that rates cannot?
+------------------------------------------------------------------------------
+  12 variables with non-trivial missingness.
+  Distinct patterns observed: 233 of 4,096 possible
+
+  The commonest patterns, as share of the cohort:
+    EIWPABPGBUAA   <- first letter of each variable
+    ............    73    7.5%
+    .......XXX..    60    6.1%
+    ...X..XXXX..    38    3.9%
+    ....XX.XXX..    28    2.9%
+    ...X..X.....    27    2.8%
+    ....XX......    26    2.7%
+    .......XXX.X    22    2.2%
+    ...........X    20    2.0%
+
+  Pairwise co-occurrence (phi between missing-indicators):
+      a       b   phi
+   pafi      ph 0.976
+    bun glucose 0.947
+    bun   urine 0.888
+glucose   urine 0.851
+    alb    bili 0.604
+    edu  income 0.440
+   adlp     edu 0.424
+   adlp    adls 0.323
+
+------------------------------------------------------------------------------
+QUESTION 16: 01_eda.py offered enrolment phase as an unverified explanation for
+the follow-up imbalance. SUPPORT2 ships no phase column.
+Prove or refute it anyway.
+------------------------------------------------------------------------------
+  Administrative censoring happens when a study closes, so censored
+  follow-up encodes enrolment date. If enrolment came in two waves
+  closed on one date, this distribution must be bimodal.
+
+        0-  180d                                           0
+      180-  360d  ###                                      7
+      360-  540d  ##############################          61
+      540-  720d  #################################       66
+      720-  900d  ##########################              53
+      900- 1080d  #####################                   42
+     1080- 1260d                                           1  <-- gap
+     1260- 1440d  ##############                          28
+     1440- 1620d  ##############                          29
+     1620- 1800d  #################                       35
+     1800- 1980d  #################                       35
+     1980- 2160d  ###########                             22
+
+  Emptiest interior bin: 1080-1260 days (1 patients), against neighbours of 42 and 28.
+
+  Assigning a wave proxy at 1150 days, and checking the
+  'artefact' variables against the 'real signal' ones:
+variable  missing_early_wave  missing_late_wave  difference_pp
+     bun               100.0                0.9           99.1
+   urine               100.0                9.1           90.9
+ glucose               100.0                6.5           93.5
+  income                27.5               21.7            5.8
+    adlp                31.5               23.0            8.5
+     edu                12.8               10.4            2.3
+
+  And the converse -- where do the BUN-missing patients sit?
+    BUN recorded  censored n= 228   in early-enrolment wave:   0.0%
+    BUN missing   censored n= 151   in early-enrolment wave:  98.7%
+
+------------------------------------------------------------------------------
+QUESTION 17: The VIF table in 02_profile.py rests on complete cases only, well
+under a fifth of the training cohort. Recompute it honestly and
+say whether the conclusion holds.
+------------------------------------------------------------------------------
+  Complete cases: 91 of 978 (9.3%)
+
+  Single imputation is used here as a DIAGNOSTIC only -- it understates
+  uncertainty and is not the modelling strategy (that is MICE inside folds).
+         VIF_complete_case  VIF_imputed  change
+bun                   2.59         2.52   -0.07
+adls                  1.80         2.42    0.62
+adlp                  1.66         2.32    0.66
+crea                  2.96         2.10   -0.86
+pafi                  1.37         1.57    0.20
+alb                   1.53         1.46   -0.06
+hrt                   1.44         1.26   -0.18
+temp                  1.30         1.23   -0.06
+bili                  1.22         1.23    0.01
+sod                   1.48         1.19   -0.30
+wblc                  1.17         1.17    0.00
+ph                    1.52         1.17   -0.35
+urine                 1.47         1.17   -0.31
+age                   1.47         1.14   -0.34
+meanbp                1.21         1.13   -0.09
+hday                  1.24         1.12   -0.11
+resp                  1.34         1.12   -0.23
+num.co                1.36         1.11   -0.24
+edu                   1.77         1.10   -0.67
+scoma                 1.28         1.07   -0.21
+glucose               1.30         1.06   -0.25
+
+  Highest VIF on imputed data: 2.52 (no action needed).
+
+==============================================================================
+FIGURES
+==============================================================================
+  wrote output\figures\07_survival_overview.png
+  wrote output\figures\08_enrolment_waves.png
+  wrote output\figures\09_missingness_patterns.png
+
+ANSWERS
+==============================================================================
+
+A12. WHAT THE DATA DICTIONARY CATCHES
+    Table 1 answers "how do the outcome groups differ". The dictionary answers
+    "what is in this file at all", and the two fail in different directions.
+
+    A stratified table silently skips anything it cannot stratify. It will not
+    tell you a column is constant, that a supposedly continuous variable has
+    four distinct values, that a unit is undocumented, or that a column exists
+    which nobody has assigned a role. Those are the errors that survive review
+    precisely because the interesting table looks fine.
+
+    The unglamorous columns earn their place: n_obs, unique, range, unit. A
+    creatinine range of 0.3 to 20 mg/dL is plausible; the same numbers labelled
+    umol/L would not be. Without the unit column nobody can check that, and
+    plausibility bounds asserted without units are unreviewable.
+
+    Note also what this table must NOT do, which an earlier version of this
+    project got wrong. It once published an albumin maximum of 29.0 g/dL, two
+    sections after the write-up called that value incompatible with life,
+    because the plausibility bounds lived in one script and were applied in one
+    function. A dictionary that contradicts the data-quality section is worse
+    than no dictionary, because it looks like diligence. The bounds now live in
+    support2.PLAUSIBLE_BOUNDS and are applied by the shared entry point, so the
+    two cannot disagree.
+
+A13. WHAT THE CURVE IS MISSING
+    The numbers at risk. A Kaplan-Meier plot without a risk table underneath it
+    will be sent back by any competent reviewer, and the reason is visible in
+    this cohort's tail.
+
+    Survival at day 1,825 is estimated at 26.9% -- from 53
+    patients. At day 30 the same curve rests on 891. It is drawn at
+    full width and full confidence at both, and looks exactly as authoritative
+    in each place. A reader cannot see the difference from the line alone, and
+    the confidence band understates it because it narrows on the survival scale
+    as the estimate approaches zero.
+
+    The at-risk row restores the denominator. It is the single most common
+    reason survival figures are rejected, and it costs one line of code.
+
+    Report landmark estimates with confidence intervals too, rather than only a
+    median. In a cohort this sick the median arrives early, and the clinically
+    interesting question -- what fraction is alive at a year, here 63.4%
+    -- lives elsewhere on the curve.
+
+A14. WHAT THE HAZARD SHAPE TELLS YOU
+    The death rate is heavily front-loaded: the first interval runs at
+    6.0 times the rate of the last. This is a cohort of critically
+    ill patients, so that is clinically unsurprising, but it has two concrete
+    consequences.
+
+    For a proportional-hazards model: proportionality is an assumption about the
+    RATIO of hazards between groups, not about the shape of the baseline hazard,
+    so a falling baseline is not itself a violation. Cox handles it without
+    complaint. But a steeply changing baseline is where non-proportionality
+    tends to hide -- a covariate that matters intensely in the first month and
+    little afterwards still yields a plausible-looking single hazard ratio. Test
+    with Schoenfeld residuals rather than assuming.
+
+    For horizon choice: most events are early, so a 30-day or 90-day horizon is
+    where the data is dense and where a discharge decision actually sits. A
+    five-year horizon is estimable but rests on 53 patients and
+    answers a question nobody asks at the bedside.
+
+A15. WHAT PATTERNS SAY THAT RATES CANNOT
+    A rate is a marginal. It tells you a variable is half missing and nothing
+    about whether those are the same patients each time.
+
+    Across 12 variables there are 4,096 possible missingness
+    patterns and only 233 occur. The phi matrix shows blocks of
+    near-perfect co-occurrence -- variables absent together, as a set.
+
+    That structure is diagnostic. Missingness caused by individual patients --
+    one refused a test, another was too unwell for an interview -- produces
+    scattered, weakly correlated patterns. Missingness caused by a protocol
+    produces blocks: an entire panel present or absent as a unit, because a
+    panel is what gets ordered.
+
+    Blocks point away from the patient and toward the data-collection process.
+    Q16 identifies the process.
+
+A16. THE ENROLMENT WAVES, PROVEN
+    Confirmed, and confirmable without a phase column because censoring times
+    carry the information.
+
+    Administrative censoring occurs when the study closes, not when a patient
+    leaves. So for censored patients, follow-up duration is a direct function of
+    enrolment date: enrol early, be observed longer. If enrolment came in two
+    waves against a single closing date, censored follow-up must be bimodal --
+    and it is, with the interval at 1080-1260 days holding 1 patients
+    against neighbours of 42 and 28. A single continuous accrual
+    cannot produce that gap.
+
+    Assigning a wave proxy at 1150 days separates the variables far more
+    sharply than Q5 could. This is not a difference of degree, it is close to
+    deterministic:
+
+        bun      100.0% missing early vs 0.9% late
+        urine    100.0% vs 9.1%
+        glucose  100.0% vs 6.5%
+
+    against the variables that survived Q5:
+
+        adlp     31.5% vs 23.0%
+        income   27.5% vs 21.7%
+
+    A hundred-to-one split is not a measurement pattern. It is a protocol: those
+    assays were not part of the early collection instrument. The converse
+    confirms it from the other direction -- 0.0% of
+    censored patients with BUN recorded fall in the early wave, against
+    98.7% of those missing it.
+
+    So the mechanism is established rather than speculated, and it is stronger
+    than "informative missingness" ever was. Missing BUN records WHEN a patient
+    was enrolled. Enrolling earlier means being observed longer, which means a
+    higher chance of having died before the study closed. Every step of the
+    spurious association is visible and none of it involves the patient.
+
+    Stated honestly: the wave assignment is a proxy inferred from censoring, not
+    a recorded field, and it can only be assigned to censored patients -- a
+    patient who died before the closing date reveals nothing about their
+    enrolment date. That is a real limit on the proof. It does not weaken the
+    conclusion, because the mechanism only needs to explain the censored
+    patients to account for the imbalance in observation windows.
+
+A17. VIF, HONESTLY
+    The complete-case table rests on 91 of the training cohort
+    (9.3%), and Q3-Q5 established those are not a random sample.
+    A diagnostic measured on a non-random subsample is not evidence about the
+    cohort. Q16 sharpens the point: complete cases are overwhelmingly late-wave
+    patients, because three of the variables required for completeness were
+    never collected in the early wave. "Complete case" here is close to a
+    synonym for "enrolled after the protocol changed".
+
+    Recomputed on imputed data across the full training cohort, the conclusion
+    happens to hold -- the maximum VIF is 2.52, nowhere near the
+    conventional thresholds. But that was not knowable in advance. It had to be
+    checked, and it could have gone the other way.
+
+    Two caveats to state rather than bury. Single imputation is used because
+    this is a diagnostic and it understates uncertainty; the modelling strategy
+    remains MICE fitted inside cross-validation folds. And VIF measures only
+    linear dependence among predictors as entered, so it says nothing about the
+    spline terms Q10 justified for creatinine, whose basis functions are
+    collinear with one another by construction and are meant to be.
+
+    The general habit: when a diagnostic rests on a subset, report the subset
+    size beside it. A reassuring number attached to a tenth of the cohort is not
+    reassurance, and the reader cannot detect the problem unless you show the
+    denominator.
+==============================================================================
+

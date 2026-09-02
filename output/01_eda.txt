@@ -1,0 +1,363 @@
+
+==============================================================================
+SUPPORT2 -- exploratory analysis
+==============================================================================
+  9,105 patients x 47 columns as loaded
+  349 physiologically impossible cells set to missing before any analysis
+
+  Cohort derivation (CONSORT-style attrition):
+     9,105  SUPPORT2 enrolled patients
+     1,387  Restrict to dzgroup == 'CHF'  (-7,718)
+     1,387  Complete outcome (death and follow-up time)
+     1,387  Follow-up time > 0 days
+
+  Train/test partition (seed 20260901, stratified on death):
+    all enrolled   train 6,374   test 2,731
+    CHF cohort     train 978
+
+  Every number below is computed on TRAIN ONLY. The test partition is
+  never returned by analysis_frames(). See A0 for why.
+
+------------------------------------------------------------------------------
+QUESTION 1: The dataset ships a binary `death` flag. Why is modelling that
+flag alone a mistake here, and what does it discard?
+------------------------------------------------------------------------------
+  deaths observed       4,341 / 6,374 (68.1%)
+  censored (alive)      2,033 (31.9%)
+
+  Three different quantities, often confused. Only one is follow-up:
+    median of the time column          237 d   <- a median TIME-TO-EVENT, pulled down by every death
+    median among censored only         927 d   <- ad hoc; ignores follow-up of those who died
+    reverse Kaplan-Meier             1,051 d   <- median FOLLOW-UP; the correct estimator
+    longest observation              2,029 d
+
+  Follow-up among the censored -- if these were all short, early dropout
+  would bias a binary flag. Are they?
+    10th percentile      453 days
+    25th percentile      622 days
+    50th percentile      927 days
+    75th percentile    1,547 days
+    90th percentile    1,841 days
+
+  Censored before 1 year: 44 (2.2% of censored patients)
+
+  Same question inside the CHF cohort:
+    n=978  deaths=599  censored=379
+    median follow-up (reverse KM) 1,348 days
+
+------------------------------------------------------------------------------
+QUESTION 2: Which columns must never enter the feature matrix, and how
+would you recognise one you had not been warned about?
+------------------------------------------------------------------------------
+role
+excluded     14
+outcome       3
+predictor    30
+
+  Excluded, with the reason:
+    slos       Length of stay. Known only after the episode ends.
+    charges    Total charges. Post-hoc resource use.
+    totcst     Total ratio-of-cost-to-charges. Post-hoc resource use.
+    totmcst    Total micro-cost. Post-hoc resource use.
+    avtisst    Average TISS score across the stay. Post-hoc care intensity.
+    sps        SUPPORT physiology score. As aps.
+    aps        APACHE III physiology score, computed from the same vitals and labs used as predictors. Collinear by construction.
+    surv2m     The original SUPPORT model's own 2-month survival estimate. Using it means re-predicting an existing model's output.
+    surv6m     As surv2m, at 6 months.
+    prg2m      Attending physician's 2-month survival estimate. This is the clinical benchmark to beat, not a model input.
+    prg6m      As prg2m, at 6 months.
+    dnrday     Day the DNR order was written. Encodes timing of a decision that often follows clinical deterioration.
+    sfdm2      Functional disability measured at 2 months. Post-baseline; its largest category is literally '<2 mo. follow-up'.
+    adlsc      Derived ADL summary; rho = 1.000 with adls, design matrix rank-deficient when both are present.
+
+  Not yet classified: none
+
+  Empirical check -- what leakage looks like:
+    d.time     median died=     58.0  survived=    927.0  univariate AUC=0.937
+    surv2m     median died=      0.7  survived=      0.8  univariate AUC=0.708
+    slos       median died=     10.0  survived=     13.0  univariate AUC=0.579
+
+------------------------------------------------------------------------------
+QUESTION 3: Several lab columns are around half missing. Is that missingness
+random, or does it carry information about the outcome?
+------------------------------------------------------------------------------
+variable  missing_pct  death_if_missing  death_if_observed  gap_pp      p
+     bun         48.1              74.4               62.3    12.1 <0.001
+ glucose         49.9              74.0               62.3    11.7 <0.001
+    adlp         61.9              72.5               61.0    11.5 <0.001
+   urine         53.8              73.3               62.1    11.2 <0.001
+     edu         18.1              75.7               66.4     9.3 <0.001
+      ph         25.2              72.9               66.5     6.4 <0.001
+    adls         31.8              72.4               66.1     6.3 <0.001
+    wblc          3.3              74.2               67.9     6.3  0.066
+    pafi         25.8              72.7               66.5     6.2 <0.001
+  income         33.4              71.3               66.5     4.8 <0.001
+     alb         36.9              69.0               67.6     1.4  0.274
+    bili         28.5              67.5               68.3    -0.8  0.539
+
+  Read `gap_pp`: percentage-point difference in mortality between
+  patients whose value was missing and those whose was recorded.
+
+------------------------------------------------------------------------------
+QUESTION 4: The mortality gap for `pafi` missingness disappears once the
+cohort is restricted to CHF, while the gap for `bun` gets larger.
+Why would conditioning on disease group do opposite things?
+------------------------------------------------------------------------------
+variable  missing_pct  gap_full p_full  gap_chf  p_chf survives
+     bun         53.3      12.1 <0.001     20.9 <0.001      yes
+   urine         57.8      11.2 <0.001     20.5 <0.001      yes
+ glucose         55.3      11.7 <0.001     18.9 <0.001      yes
+  income         30.8       4.8 <0.001     12.3 <0.001      yes
+    adlp         32.1      11.5 <0.001     10.2  0.003      yes
+     edu         13.6       9.3 <0.001      7.4  0.124       no
+    wblc          3.2       6.3  0.066      6.7  0.571       no
+    bili         34.6      -0.8  0.539      4.5  0.191       no
+     alb         45.3       1.4  0.274      4.0  0.226       no
+    pafi         36.5       6.2 <0.001      1.9  0.600       no
+      ph         35.4       6.4 <0.001      1.8  0.623       no
+    adls         36.3       6.3 <0.001      0.3  0.992       no
+
+  Case mix is the mechanism. Which patients carry the missing values?
+
+                   <5 labs missing (%)  >=5 labs missing (%)
+dzgroup                                                     
+CHF                               13.0                  23.9
+Lung Cancer                        7.4                  19.3
+ARF/MOSF w/Sepsis                 44.1                  18.0
+Colon Cancer                       3.7                  13.3
+COPD                              11.3                   8.8
+Cirrhosis                          5.1                   7.2
+MOSF w/Malig                       8.3                   5.0
+Coma                               7.0                   4.5
+
+------------------------------------------------------------------------------
+QUESTION 5: Split the CHF cohort on whether BUN was ever recorded. A chi-square
+on death returns p<0.001 with a 21-point gap; a log-rank test on
+the same split returns p=0.756. Both are correctly computed.
+Which is telling the truth, and what does the other measure?
+------------------------------------------------------------------------------
+variable  gap_pp p_binary p_logrank q_logrank  censored_fu_obs  censored_fu_missing  fu_ratio            verdict
+     bun   20.91   <0.001     0.756     0.824            664.0               1690.0      2.55 follow-up artefact
+   urine   20.52   <0.001     0.586     0.782            651.0               1659.0      2.55 follow-up artefact
+ glucose   18.88   <0.001     0.992     0.992            660.0               1674.0      2.54 follow-up artefact
+  income   12.31   <0.001    <0.001    <0.001            894.0               1014.0      1.13        real signal
+    adlp   10.17    0.003    <0.001     0.004            893.0               1024.0      1.15        real signal
+     edu    7.43    0.124     0.063     0.253            901.0               1007.0      1.12          no signal
+    wblc    6.71    0.571     0.470     0.759            901.0               1108.0      1.23          no signal
+    bili    4.51    0.191     0.112     0.336            886.0               1001.0      1.13          no signal
+     alb    3.99    0.226     0.506     0.759            849.0               1046.0      1.23          no signal
+    pafi    1.92    0.600     0.432     0.759            885.0               1042.0      1.18          no signal
+      ph    1.83    0.623     0.488     0.759            893.0               1042.0      1.17          no signal
+    adls    0.25    0.992     0.683     0.819            902.0                901.0      1.00          no signal
+
+  q_logrank is the Benjamini-Hochberg FDR q-value across 12 tests.
+  The verdict column uses q, not p.
+
+  `fu_ratio` is median follow-up among CENSORED patients, missing-group
+  over observed-group. Near 1 means both groups were watched equally long,
+  so a difference in cumulative death is real. Far above 1 means one group
+  simply had longer to die.
+
+------------------------------------------------------------------------------
+QUESTION 6: Given the corrected picture, what is the defensible imputation
+strategy -- and what would be wrong with adding a missingness
+indicator to every variable that looked informative in Q3?
+------------------------------------------------------------------------------
+  Survive the time-to-event test    : income, adlp
+  Artefact of differential follow-up: bun, urine, glucose
+
+  Note what the survivors have in common, and what the artefacts do.
+
+  Complete-case cost: 72 of 978 CHF patients retained (7.4%).
+
+==============================================================================
+FIGURES
+==============================================================================
+  wrote output\figures\01_missingness_by_variable.png
+  wrote output\figures\02_conditioning_on_disease.png
+  wrote output\figures\03_binary_vs_time_to_event.png
+
+ANSWERS
+==============================================================================
+
+A0. WHY THERE IS A HELD-OUT PARTITION, AND WHY IT IS LOCKED
+    Not a question in the list, but the first thing a reviewer should ask.
+
+    Across 01_eda.py, 02_profile.py and 03_cohort.py this project looks at the
+    outcome dozens of times. Each look is a decision point at which the data
+    could steer a modelling choice. That accumulated steering is analyst degrees
+    of freedom, and it makes any subsequent performance estimate optimistic by
+    an amount nobody can compute after the fact.
+
+    Two honest responses exist. Report everything as exploratory and correct the
+    optimism by bootstrap. Or partition once, before modelling, and keep one
+    part unseen. This project does both: the findings below are labelled
+    hypothesis-generating and carry FDR-adjusted q-values across 12
+    tests, and a 30% partition is held out by fixed seed and never read.
+
+    The partition is generated from a constant (seed 20260901, stratified on
+    death) rather than stored, so it reproduces exactly without committing
+    patient rows -- the same constraint that shapes the loader.
+
+A1. WHY NOT THE BINARY FLAG
+    Start by refusing the textbook worry. The standard fear is heavy early
+    dropout, and it does not apply here: only 2.2% of censored
+    patients were followed less than a year. Censoring in SUPPORT2 is mostly
+    administrative -- the study ended. Say that out loud rather than reciting a
+    concern the data does not support.
+
+    Note also which follow-up number you quote. The median of the time column is
+    237 days, but that is a median time-to-event: every death drags
+    it down. Median follow-up needs the reverse Kaplan-Meier, inverting the
+    indicator so censoring is the event, and it gives 1,051 days --
+    4.4x larger. Quoting the first as "median follow-up" is a common
+    error, and an embarrassing one in a project whose central finding is about
+    follow-up.
+
+    The real objections to the binary flag are three.
+
+    First, the label is nearly saturated: 68.1% of the training
+    cohort and 61.2% of CHF died. An outcome that fires for
+    two-thirds of patients has little room to discriminate, and "died at some
+    point over the next one to five years" is not a question anyone decides on.
+
+    Second, follow-up duration is not balanced across patients, and Q5 shows it
+    correlates with data-collection patterns in a way that manufactures signal.
+    Once that is true the binary flag is not merely lossy. It is biased, in a
+    direction you will not notice unless you look.
+
+    Third, the clinical question is timing. A cardiologist discharging a heart
+    failure patient wants 30-day and 6-month risk. Any fixed-horizon binary
+    outcome must be computed with censor-adjustment anyway.
+
+A2. THE COLUMNS THAT MUST NOT ENTER
+    They fall into four recognisable kinds:
+
+      * The outcome in disguise -- `d.time`, `hospdead`. `d.time` is follow-up
+        duration; as a "predictor" of death it reaches a univariate AUC near
+        0.94, which is the tell.
+      * Measured after baseline -- `sfdm2` (function at 2 months), `slos`,
+        `charges`, `totcst`, `avtisst`. Not knowable at prediction time.
+      * Another model's output -- `surv2m`, `surv6m`. Including these means your
+        model is re-predicting the 1995 SUPPORT model.
+      * Constructed from the predictors -- `aps`, `sps` are severity scores
+        computed from the same vitals and labs. Collinear by construction. So is
+        `adlsc`, which 02_profile.py shows is not merely correlated with `adls`
+        but numerically identical to it.
+
+    `prg2m` and `prg6m` are excluded for a different reason: they are the
+    attending physician's own survival estimates. They are the benchmark. The
+    interesting question is not whether a model beats chance but whether it
+    beats the doctor -- and you cannot answer that if you fed the doctor's
+    answer to the model.
+
+    The general test for a column nobody warned you about: could this value have
+    been known, in this form, at the moment the prediction is meant to be made?
+    If answering needs a hospital course to resolve, it leaks.
+
+A3. IS THE MISSINGNESS INFORMATIVE?
+    On this evidence it looks emphatically non-random. Patients missing BUN died
+    12.1 percentage points more often across all disease groups,
+    with glucose, urine output and patient-reported ADLs showing gaps of similar
+    size. Under MCAR you would expect gaps near zero.
+
+    That is the answer most analyses give, and it is where most of them stop.
+    Hold it loosely. A gap of this kind has at least three explanations: the
+    patient was sicker, the patient was somewhere that orders fewer labs, or the
+    two groups were not observed for the same length of time. The third is
+    invisible to a chi-square, because a chi-square on a cumulative outcome has
+    no concept of exposure time at all.
+
+    Q4 separates the first two. Q5 surfaces the third, and it removes half the
+    variables on this list.
+
+A4. WHY CONDITIONING SPLITS THE VARIABLES IN TWO
+    Restricting to CHF holds disease fixed, and the variables separate.
+
+    Some collapse to nothing -- `pafi`, `ph`, `alb`, `bili`, `adls`. Blood gases
+    are drawn almost exclusively on ventilated or ICU patients, so across the
+    full cohort their missingness encoded WHERE a patient was treated: the
+    heavy-missing group is disproportionately ward oncology, the well-measured
+    group disproportionately sepsis. The signal was case mix wearing a lab coat.
+
+    Others get stronger -- `bun`, `urine`, `glucose`. These are basic renal and
+    volume monitoring, which is what you follow in heart failure, where
+    cardiorenal syndrome drives outcome. That reading is clinically seductive
+    and, as Q5 shows, wrong.
+
+A5. WHY THE TWO TESTS DISAGREE
+    Both are right. They answer different questions.
+
+    The chi-square asks: of the patients in each group, what fraction had died
+    by the end of the study? The log-rank asks: at each point in time, among
+    those still alive and still observed, is the rate of dying the same? The
+    first has no concept of exposure time. The second is built on it.
+
+    The `fu_ratio` column settles it. Among censored CHF patients, those missing
+    BUN were followed a median 1,690 days against 664 for
+    those with it recorded -- 2.55 times longer. They did not die at a
+    higher rate; they were watched longer, so more had died by the time the
+    study closed. The 20.9 point gap is an accounting artefact of unequal
+    observation windows, and the overlapping curves in Figure 3 are what that
+    looks like.
+
+    The variables sort themselves by this ratio:
+
+      * ratio near 2.54, log-rank null -- bun, urine, glucose. All
+        artefact. Their binary p-values are the most significant on the list and
+        mean nothing.
+      * ratio 1.13 to 1.15, surviving FDR correction --
+        income and adlp. Real.
+
+    Notice what the survivors are. Not laboratory values at all -- they are
+    collected by INTERVIEWING the patient. Non-response to an interview is
+    caused by the patient's condition: too unwell, too confused, or dead before
+    the interview happened. That is missingness driven by the outcome process
+    itself, the textbook definition of informative, and the one place here where
+    the textbook applies.
+
+    One apparent survivor did not survive. On the full cohort with unadjusted
+    p-values, education looked real. On the training partition with FDR
+    correction across 12 tests it is gone (p=0.063, q=0.253). Nothing
+    about education changed -- what changed is that it was no longer judged
+    against a bar it had help clearing. Marginal findings are exactly the ones
+    that evaporate under a holdout and a multiplicity correction, which is the
+    argument for imposing both before you become attached to a result.
+
+A6. WHAT TO ACTUALLY DO
+    Not complete-case analysis. Requiring every candidate predictor leaves
+    72 of the CHF training cohort (7.4%), and Q4 shows the
+    dropped rows differ systematically. That is selection bias, not tidying.
+
+    Not the SUPPORT normal-fill constants as the primary strategy either.
+    Filling creatinine with 1.01 asserts a value was normal when it was never
+    measured, and shrinks variance so downstream confidence intervals come out
+    too narrow. It is kept in support2.py as a documented clinical baseline to
+    compare against, not as the answer.
+
+    Three parts:
+
+      1. Multiple imputation (MICE), conditioning the imputation model on the
+         auxiliaries Q4 identified -- dzgroup and care-intensity measures --
+         since those are what make MAR tenable for the case-mix-driven group.
+      2. Missingness indicators for income and adlp only -- the variables that clear
+         FDR correction on training data. This is the trap the question points
+         at: after Q3 the obvious move is to flag bun, urine, glucose, and that
+         would be wrong. Those indicators encode enrolment era, not patient
+         state (03_cohort.py proves it). You would spend degrees of freedom on
+         noise and then be asked, in front of clinicians, to explain a
+         coefficient for "BUN was not drawn" -- with no clinical story to tell.
+      3. Imputation fitted inside each cross-validation fold. Imputing on the
+         full dataset before splitting leaks test information into training, and
+         is the most common silent error in pipelines like this.
+
+    Then report the sensitivity: MICE, complete-case and normal-fill side by
+    side. Where they agree, say so. Where they diverge, the divergence is a
+    finding about the data rather than an inconvenience.
+
+    Note finally that 349 physiologically impossible cells were set to
+    missing before any of this ran -- see 02_profile.py Q8. They are imputed
+    alongside the values that were never recorded, because an impossible
+    measurement and an absent one are the same kind of ignorance.
+==============================================================================
+

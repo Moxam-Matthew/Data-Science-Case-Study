@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import zipfile
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -111,6 +112,73 @@ SUPPORT_NORMAL_FILL = {
 }
 
 CHF_LABEL = "CHF"
+
+# ── Physiologic plausibility ─────────────────────────────────────────────────
+# Bounds are declared here, before anything looks at an outcome, and applied by
+# every entry point. They previously lived inside 02_profile.py and were used in
+# exactly one function, which meant the data dictionary in 03_cohort.py happily
+# published an albumin maximum of 29.0 g/dL two sections after the README called
+# that value incompatible with life, and the imputation diagnostic was fitting on
+# a mean arterial pressure of zero.
+#
+# The project's own stated rule is "clean first, then test, and say which order".
+# A constant in one script does not implement that rule; a pipeline step does.
+#
+# Units are in UNITS below. A bound without a unit is not reviewable.
+PLAUSIBLE_BOUNDS: dict[str, tuple[float, float]] = {
+    "meanbp": (20, 200),     # mmHg; 0 is absence of circulation, not hypotension
+    "hrt": (20, 250),        # beats/min
+    "resp": (4, 60),         # breaths/min
+    "temp": (30, 43),        # degC
+    "sod": (110, 175),       # mEq/L
+    "crea": (0.1, 20),       # mg/dL
+    "wblc": (0.1, 100),      # 10^3/uL
+    "ph": (6.8, 7.8),        # pH units
+    "glucose": (20, 1000),   # mg/dL
+    "alb": (0.5, 7.0),       # g/dL; >7 is incompatible with life
+    "bili": (0.05, 60),      # mg/dL
+    "bun": (1, 250),         # mg/dL
+    "pafi": (20, 700),       # PaO2/FiO2 ratio
+}
+
+
+def find_implausible(df: pd.DataFrame) -> pd.DataFrame:
+    """Locate cells outside physiologic bounds, without changing anything."""
+    rows = []
+    for col, (lo, hi) in PLAUSIBLE_BOUNDS.items():
+        if col not in df:
+            continue
+        s = df[col].dropna()
+        below, above = int((s < lo).sum()), int((s > hi).sum())
+        if below or above:
+            offenders = sorted(set(s[(s < lo) | (s > hi)].round(2)))[:6]
+            rows.append({"variable": col, "unit": UNITS.get(col, "?"),
+                         "bound": f"[{lo}, {hi}]", "below": below, "above": above,
+                         "observed_min": s.min(), "observed_max": s.max(),
+                         "offending_values": ", ".join(str(v) for v in offenders)})
+    return pd.DataFrame(rows)
+
+
+def apply_plausibility_bounds(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """
+    Set physiologically impossible cells to missing.
+
+    Cell-level, never row-level. Dropping the patient would discard every valid
+    measurement they contributed and would delete rows on the basis of a
+    transcription error, which is a form of selection. Voided cells join the
+    values that were never recorded and are handled by the same imputation.
+
+    Returns the cleaned frame and the number of cells voided, so the count is
+    reportable rather than silent.
+    """
+    out, n = df.copy(), 0
+    for col, (lo, hi) in PLAUSIBLE_BOUNDS.items():
+        if col not in out:
+            continue
+        bad = out[col].notna() & ((out[col] < lo) | (out[col] > hi))
+        n += int(bad.sum())
+        out.loc[bad, col] = np.nan
+    return out, n
 
 
 def load_support2(path: Path | None = None) -> pd.DataFrame:
@@ -220,6 +288,52 @@ def make_split(df: pd.DataFrame, test_frac: float = 0.30,
 def train_set(df: pd.DataFrame, **kw) -> pd.DataFrame:
     """The partition all exploratory and model-fitting work may see."""
     return df[make_split(df, **kw) == "train"].copy()
+
+
+def model_predictors(df: pd.DataFrame) -> list[str]:
+    """
+    Candidate predictors with zero-variance columns removed for THIS cohort.
+
+    `dzgroup` and `dzclass` are legitimate predictors across the whole study and
+    are what Q4 conditions on -- but inside the CHF restriction they are
+    constant by construction, since the restriction is defined on them. A
+    constant column contributes nothing and can make a design matrix singular.
+
+    The data dictionary in 03_cohort.py surfaces this; this is where it is acted
+    on. Cohort-dependent, so it is computed rather than hardcoded.
+    """
+    return [c for c in CANDIDATE_PREDICTORS
+            if c in df and df[c].nunique(dropna=True) > 1]
+
+
+class Cohort(NamedTuple):
+    """Everything a script may look at, assembled once by the same code path."""
+    raw: pd.DataFrame          # as loaded, uncleaned -- for Q8's before/after report
+    full_train: pd.DataFrame   # all disease groups, cleaned, training partition
+    chf_train: pd.DataFrame    # CHF only, cleaned, training partition
+    n_voided: int              # implausible cells set to missing
+    n_test: int                # held out, never returned
+
+
+def analysis_frames(test_frac: float = 0.30, seed: int = 20260901) -> Cohort:
+    """
+    The single entry point for every analysis script.
+
+    Order is load -> bound -> split, and it is fixed here rather than left to
+    each script, because the order is itself a finding: 02_profile.py showed a
+    functional-form verdict flipping on whether the bounds had been applied yet.
+    A rule that lives in one script is not a rule.
+
+    The test partition is constructed and immediately discarded from the return
+    value, so a script cannot read it by accident.
+    """
+    raw = load_support2()
+    cleaned, n_voided = apply_plausibility_bounds(raw)
+    split = make_split(cleaned, test_frac=test_frac, seed=seed)
+    full_train = cleaned[split == "train"].copy()
+    return Cohort(raw=raw, full_train=full_train,
+                  chf_train=chf_cohort(full_train),
+                  n_voided=n_voided, n_test=int((split == "test").sum()))
 
 
 def audit_columns(df: pd.DataFrame) -> pd.DataFrame:
