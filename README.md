@@ -24,27 +24,32 @@ splits says so.
 
 ![Binary vs time-to-event](output/figures/03_binary_vs_time_to_event.png)
 
-Patients missing BUN were followed for a median **1,689 days against 655** — 2.6×
+Patients missing BUN were followed for a median **1,690 days against 664** — 2.55×
 longer. More of them had died by the time the study closed because they were
 watched for longer, not because they died faster. Their survival curves are
-indistinguishable (log-rank p=0.67) despite a 20-point gap in cumulative death.
+indistinguishable despite a 21-point gap in cumulative death.
 
 The variables that *do* survive the time-to-event test are not laboratory values at
-all. They are the three collected by **interviewing the patient** — functional
-status, income, education — where follow-up is balanced (ratio 1.03–1.13) and the
-curves genuinely separate. Interview non-response is caused by the patient's
-condition. That is informative missingness in the textbook sense, and it is the one
-place here the textbook applies.
+all. They are collected by **interviewing the patient** — functional status and
+income — where follow-up is balanced and the curves genuinely separate. Interview
+non-response is caused by the patient's condition. That is informative missingness
+in the textbook sense, and it is the one place here the textbook applies.
 
-| | binary p | log-rank p | censored follow-up ratio | verdict |
+| | binary p | log-rank q (FDR) | censored follow-up ratio | verdict |
 |---|---|---|---|---|
-| `bun`, `urine`, `glucose` | <0.001 | 0.50 – 0.91 | ~2.5× | follow-up artefact |
-| `adlp`, `income`, `edu` | <0.001 – 0.010 | <0.001 – 0.004 | 1.03 – 1.13 | real signal |
+| `bun`, `urine`, `glucose` | <0.001 | 0.82 – 0.95 | **2.55×** | follow-up artefact |
+| `income`, `adlp` | <0.001 – 0.003 | <0.001 – 0.004 | 1.13 – 1.15 | real signal |
+| `edu` | 0.124 | 0.253 | 1.12 | *did not replicate* |
 
-The practical consequence: a missingness indicator belongs on `adlp`, `income` and
-`edu` only. Adding one for `bun` would encode enrolment era, not patient state — and
-leave you explaining a coefficient for "BUN was not drawn" to a room of clinicians
-with no clinical story to tell.
+That last row is the discipline working. On the full cohort with unadjusted
+p-values, education looked real (p=0.004). On the training partition with FDR
+correction across twelve tests it is gone. Nothing about education changed — it was
+simply no longer being judged against a bar it had help clearing.
+
+The practical consequence: a missingness indicator belongs on `income` and `adlp`
+only. Adding one for `bun` would encode enrolment era, not patient state — and leave
+you explaining a coefficient for "BUN was not drawn" to a room of clinicians with no
+clinical story to tell.
 
 ---
 
@@ -52,11 +57,12 @@ with no clinical story to tell.
 
 [`02_profile.py`](02_profile.py) covers what a clinical reviewer checks next.
 
-**Table 1** is reported with **standardised mean differences, not p-values**. With
-n=1,387 a clinically trivial difference clears p<0.05, so the p-value measures
-sample size rather than importance — and there is no sampling to make inference
-about, since these *are* the two outcome groups. |SMD| > 0.1 is the conventional
-imbalance threshold.
+**Table 1** is reported with **standardised mean differences, not p-values**. A
+p-value here measures sample size rather than importance, and there is no sampling
+to make inference about since these *are* the two outcome groups. |SMD| > 0.1 is the
+conventional imbalance threshold. Multi-level categoricals get a single
+Yang–Dalton SMD for the variable rather than one per level, and every level is
+reported rather than only the modal one.
 
 **Physiologic plausibility** flagged 22 impossible cell values, including an albumin
 of **29.0 g/dL** (normal 3.5–5.0; incompatible with life above ~7) which alone
@@ -69,16 +75,19 @@ against a natural cubic spline:
 
 ![Functional form](output/figures/05_functional_form.png)
 
-Creatinine rejects linearity decisively (p<0.001, AIC gain 10.4) — risk steps up
-around 1.2 mg/dL then **plateaus**, while a linear term extrapolates a rising slope
-into a tail where almost no patients exist. Heart rate also rejects (p=0.024). But
-age, mean arterial pressure, temperature and BUN all test as adequately linear, and
-their splines are *worse* by AIC. Eyeballing the age octiles suggested curvature;
-the formal test disagreed. Testing beat assuming in both directions.
+Exactly one variable survives: **creatinine** (q=0.036, AIC gain 7.1) — risk steps
+up around 1.2 mg/dL then **plateaus**, while a linear term extrapolates a rising
+slope into a tail where almost no patients exist.
 
-One caution the test surfaced: `resp` read non-linear at p=0.040 before the
-plausibility bounds were applied and linear at p=0.085 after — a verdict flipped by
-one impossible value. Clean first, then test.
+Heart rate is the instructive near-miss. Unadjusted it looks like a finding at
+p=0.021; across nine tests the FDR q-value is 0.093 and it fails. Nine tests at
+α=0.05 hand you roughly one false positive for free, and reporting `hrt` as
+non-linear would be reporting the multiplicity rather than the biology. Everything
+else tests as adequately linear with splines that are *worse* by AIC.
+
+One caution surfaced during development: `resp` changed verdict once the
+plausibility bounds were applied, because a single impossible value — a respiratory
+rate of 76 — was doing the work. Clean first, then test, and say which order.
 
 **Collinearity** turned up an identity rather than an association: `adls` and `adlsc`
 correlate at **rho = 1.000** and the design matrix is rank-deficient, because `adlsc`
@@ -104,8 +113,18 @@ survival estimates (`prg2m`, `prg6m`). The question worth answering is not wheth
 model beats chance but whether it beats the doctor — which means those columns are
 the comparator, never model inputs.
 
-**Death is a competing risk.** You cannot be readmitted after dying. Cumulative
-incidence is estimated with Aalen–Johansen rather than treating death as censoring.
+**There is no competing risk here, and saying so matters.** Competing-risks methods
+are standard in cardiology and it would be easy to reach for them, but the outcome in
+this project is *all-cause* mortality — `death` is complete, and `hospdead` is a
+strict subset with zero contradictions. Nothing competes with dying. Fine–Gray or
+Aalen–Johansen would apply if the outcome were readmission (death precludes it) or a
+cause-specific death, and neither is what is modelled here. Applying them anyway
+would be methodological theatre.
+
+**The exploratory work is labelled as exploratory.** Roughly sixty outcome-aware
+comparisons were made across the two EDA scripts. All multi-variable tables carry
+Benjamini–Hochberg q-values, and a 30% partition (seed `20260901`, stratified on
+death) is held out and never read before modelling.
 
 ---
 
@@ -135,6 +154,30 @@ No patient data is committed. The loader reads a local copy if present and other
 downloads from UCI. That is deliberate: most clinical data use agreements prohibit
 redistributing row-level records, so the project is built to that standard from the
 first commit rather than retrofitted.
+
+---
+
+## Analytic discipline
+
+**Cohort derivation is stated, not assumed.** 9,105 enrolled → 1,387 CHF → complete
+outcome → follow-up > 0. Every exclusion carries its cost in patients. A sample size
+that appears without derivation is not reviewable.
+
+**A 30% partition is held out and never read.** The two EDA scripts make ~60
+outcome-aware comparisons, each a point where the data could steer a modelling
+choice. That is analyst degrees of freedom, and it makes any later performance
+estimate optimistic by an amount nobody can recover after the fact. The split is
+generated from a fixed seed rather than stored, so it reproduces exactly without
+committing patient rows.
+
+**Every multi-variable table carries FDR q-values.** Running one test is inference;
+running sixty and reporting the small p-values is selection. Two claimed findings
+(`edu` missingness, `hrt` non-linearity) do not survive correction and are reported
+as not surviving rather than quietly dropped.
+
+**Median follow-up uses reverse Kaplan–Meier.** The median of the time column is a
+median *time-to-event*, dragged down by every death; it is not follow-up. On this
+cohort the two differ roughly threefold.
 
 ---
 

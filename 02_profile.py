@@ -37,12 +37,19 @@ from scipy import stats
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 import viz  # noqa: E402
+from stats_utils import (  # noqa: E402
+    add_fdr,
+    smd_categorical,
+    smd_continuous,
+)
 from support2 import (  # noqa: E402
     CANDIDATE_PREDICTORS,
     OUTCOME_EVENT,
     PHYSIOLOGY,
+    UNITS,
     chf_cohort,
     load_support2,
+    make_split,
 )
 
 warnings.filterwarnings("ignore")
@@ -70,17 +77,6 @@ def question(n: int, text: str) -> None:
 
 
 # ── Q7. Table 1 ──────────────────────────────────────────────────────────────
-def smd_continuous(a: pd.Series, b: pd.Series) -> float:
-    a, b = a.dropna(), b.dropna()
-    pooled = np.sqrt((a.var(ddof=1) + b.var(ddof=1)) / 2)
-    return np.nan if pooled == 0 else (a.mean() - b.mean()) / pooled
-
-
-def smd_binary(p1: float, p2: float) -> float:
-    pooled = np.sqrt((p1 * (1 - p1) + p2 * (1 - p2)) / 2)
-    return np.nan if pooled == 0 else (p1 - p2) / pooled
-
-
 def q7_table_one(chf: pd.DataFrame) -> pd.DataFrame:
     question(7, "Build Table 1, stratified by outcome. Then justify why it reports\n"
                 "standardised mean differences rather than p-values.")
@@ -93,42 +89,51 @@ def q7_table_one(chf: pd.DataFrame) -> pd.DataFrame:
         if col not in chf:
             continue
         s = chf[col]
-        if s.dtype == object or s.nunique() <= 2:
-            # Report the modal / positive level as a percentage.
-            if s.dtype == object:
-                level = s.mode(dropna=True)
-                if level.empty:
-                    continue
-                level = level.iloc[0]
-                p1 = (died[col] == level).mean()
-                p2 = (lived[col] == level).mean()
-                label = f"{col} = {level}"
-            else:
-                p1, p2 = died[col].mean(), lived[col].mean()
-                label = f"{col} = 1"
-            rows.append({"characteristic": label,
-                         "died": f"{p1*100:.1f}%", "survived": f"{p2*100:.1f}%",
-                         "smd": abs(smd_binary(p1, p2)), "missing_pct": s.isna().mean()*100})
+        unit = UNITS.get(col, "")
+        is_cat = (s.dtype == object) or (s.nunique(dropna=True) <= 2)
+
+        if is_cat:
+            # One SMD for the variable as a whole (Yang & Dalton for k>2),
+            # then every level reported -- not just the modal one.
+            var_smd = abs(smd_categorical(died[col], lived[col]))
+            levels = sorted(s.dropna().unique(), key=str)
+            for i, lv in enumerate(levels):
+                rows.append({
+                    "characteristic": f"{col} = {lv}" if len(levels) > 1 else col,
+                    "unit": "%",
+                    "died": f"{(died[col] == lv).mean()*100:.1f}",
+                    "survived": f"{(lived[col] == lv).mean()*100:.1f}",
+                    "smd": var_smd if i == 0 else np.nan,   # one per variable
+                    "missing_pct": s.isna().mean() * 100,
+                })
         else:
-            m1, m2 = died[col].median(), lived[col].median()
             q1 = died[col].quantile([.25, .75]).values
             q2 = lived[col].quantile([.25, .75]).values
-            rows.append({"characteristic": col,
-                         "died": f"{m1:.1f} [{q1[0]:.1f}-{q1[1]:.1f}]",
-                         "survived": f"{m2:.1f} [{q2[0]:.1f}-{q2[1]:.1f}]",
-                         "smd": abs(smd_continuous(died[col], lived[col])),
-                         "missing_pct": s.isna().mean()*100})
+            rows.append({
+                "characteristic": col, "unit": unit,
+                "died": f"{died[col].median():.1f} [{q1[0]:.1f}-{q1[1]:.1f}]",
+                "survived": f"{lived[col].median():.1f} [{q2[0]:.1f}-{q2[1]:.1f}]",
+                "smd": abs(smd_continuous(died[col], lived[col])),
+                "missing_pct": s.isna().mean() * 100,
+            })
 
-    t1 = pd.DataFrame(rows).sort_values("smd", ascending=False).reset_index(drop=True)
+    t1 = pd.DataFrame(rows)
+    # Order variables by their SMD, keeping each variable's levels together.
+    t1["_var"] = t1.characteristic.str.split(" = ").str[0]
+    key = t1.groupby("_var").smd.transform("max")
+    t1 = (t1.assign(_key=key).sort_values(["_key", "_var"], ascending=[False, True])
+          .drop(columns=["_key", "_var"]).reset_index(drop=True))
     t1["imbalanced"] = np.where(t1.smd > 0.1, "yes", "")
 
     print(f"  Died n={len(died):,}   Survived n={len(lived):,}")
-    print("  Continuous: median [IQR].  Binary/categorical: percentage.\n")
+    print("  Continuous: median [IQR] in the stated unit. Categorical: percent of group.")
+    print("  One SMD per variable (multi-level uses Yang & Dalton), not per level.\n")
     show = t1.copy()
-    show["smd"] = show.smd.round(3)
+    show["smd"] = show.smd.round(3).fillna("")
     show["missing_pct"] = show.missing_pct.round(1)
     print(show.to_string(index=False))
-    print(f"\n  {int((t1.smd > 0.1).sum())} of {len(t1)} characteristics exceed the "
+    n_vars = int(t1.smd.notna().sum())
+    print(f"\n  {int((t1.smd > 0.1).sum())} of {n_vars} variables exceed the "
           f"conventional |SMD| > 0.1 imbalance threshold.")
     return t1
 
@@ -147,7 +152,8 @@ def q8_plausibility(chf: pd.DataFrame) -> pd.DataFrame:
         below, above = (s < lo).sum(), (s > hi).sum()
         if below or above:
             offenders = sorted(set(s[(s < lo) | (s > hi)].round(2)))[:6]
-            rows.append({"variable": col, "bound": f"[{lo}, {hi}]",
+            rows.append({"variable": col, "unit": UNITS.get(col, "?"),
+                         "bound": f"[{lo}, {hi}]",
                          "below": below, "above": above,
                          "observed_min": s.min(), "observed_max": s.max(),
                          "offending_values": ", ".join(str(v) for v in offenders)})
@@ -230,13 +236,22 @@ def q10_linearity(chf: pd.DataFrame) -> pd.DataFrame:
                      "p_nonlinearity": p, "aic_linear": lin.aic, "aic_spline": spl.aic,
                      "aic_gain": lin.aic - spl.aic})
     out = pd.DataFrame(rows).sort_values("lr_chi2", ascending=False)
+    # One test per variable: correct before calling any of them a finding.
+    out = add_fdr(out, p_col="p_nonlinearity", q_col="q_nonlinearity")
+    out["verdict"] = np.where(out.q_nonlinearity < 0.05, "NON-LINEAR", "linear ok")
+
     show = out.copy()
-    show["verdict"] = np.where(show.p_nonlinearity < 0.05, "NON-LINEAR", "linear ok")
     for c in ("lr_chi2", "aic_linear", "aic_spline", "aic_gain"):
         show[c] = show[c].round(1)
-    show["p_nonlinearity"] = show.p_nonlinearity.apply(
-        lambda v: "<0.001" if v < 0.001 else f"{v:.3f}")
-    print(show.to_string(index=False))
+    for c in ("p_nonlinearity", "q_nonlinearity"):
+        show[c] = show[c].apply(lambda v: "<0.001" if v < 0.001 else f"{v:.3f}")
+    print(show[["variable", "n", "lr_chi2", "df", "p_nonlinearity", "q_nonlinearity",
+                "aic_linear", "aic_spline", "aic_gain", "verdict"]].to_string(index=False))
+    n = int(out.p_nonlinearity.notna().sum())
+    print(f"\n  q is Benjamini-Hochberg across {n} tests; the Bonferroni bar would be "
+          f"{0.05/n:.4f}.")
+    print("  The verdict column uses q. A variable significant at p but not at q is")
+    print("  a candidate for confirmation, not a finding.")
     return out
 
 
@@ -488,27 +503,37 @@ A10. WHAT A LINEAR TERM ASSERTS
     p is small, the data has rejected linearity and you have a measurable AIC
     improvement to show for modelling the shape.
 
-    But read the table honestly, because it does not say what you might expect.
-    Only creatinine (p<0.001, AIC gain 10.4) and heart rate (p=0.024) reject
-    linearity. Age, mean arterial pressure, temperature and BUN all test as
-    adequately linear, and their spline fits are WORSE by AIC -- the extra
-    degrees of freedom bought nothing. Eyeballing the age octiles earlier
-    suggested curvature; the formal test disagreed. Testing beat assuming in
-    both directions, which is the actual lesson.
+    But read the table honestly, because it says less than you might expect.
+    Exactly one variable survives: creatinine, at q=0.036 with an AIC gain of
+    7.1. Everything else is adequately linear, and most spline fits are WORSE
+    by AIC -- the extra degrees of freedom bought nothing at all.
+
+    Watch what multiplicity correction does to heart rate. Unadjusted it looks
+    like a finding at p=0.021. Across nine tests the FDR q-value is 0.093 and
+    it fails; the Bonferroni bar would be 0.0056, which it misses by a factor
+    of four. Nine tests at alpha 0.05 will hand you roughly one false positive
+    for free, and heart rate is the most likely candidate. Reporting it as
+    non-linear would be reporting the multiplicity, not the biology.
 
     So the Harrell-school default -- assume non-linearity for continuous
     predictors and spend a few degrees of freedom on a restricted cubic spline
     -- is the right posture, but it is a hypothesis to test, not a conclusion
-    to assert. Fit the spline, test it, and keep it only where the data pays
-    for it. Where it does, report the result as a plotted risk curve rather
-    than a single odds ratio: a curve is more honest than a number when the
-    effect is not constant, and clinicians read curves fluently.
+    to assert. Fit the spline, test it, correct for the number of tests, and
+    keep it only where the data pays for it. Where it does, report the result
+    as a plotted risk curve rather than a single odds ratio: a curve is more
+    honest than a number when the effect is not constant, and clinicians read
+    curves fluently.
 
-    One warning the table also delivers. `resp` tested non-linear at p=0.040
-    before Q8's plausibility bounds were applied and linear at p=0.085 after --
-    a verdict flipped by the removal of a single impossible value (a
-    respiratory rate of 76). Functional-form conclusions can hang on one bad
-    cell. Clean first, then test, and say which order you did it in.
+    A second warning, found the hard way during development. Respiratory rate
+    changed verdict when Q8's plausibility bounds were applied, because a
+    single impossible value -- a respiratory rate of 76 -- was doing the work.
+    Functional-form conclusions can hang on one bad cell. Clean first, then
+    test, and state which order you did it in.
+
+    Third: every number in this table is computed on the training partition
+    only. Fitting the spline where the data pays for it, then evaluating that
+    choice on the same rows, would embed this decision in the performance
+    estimate. The held-out 30% has not seen any of it.
 
     Do not select the shape by looking at outcomes first and then choosing.
     Pre-specify a spline with a fixed number of knots and report it.
@@ -566,10 +591,14 @@ A11. COLLINEARITY, AND WHY IT MATTERS MORE HERE
 
 def main() -> None:
     viz.apply_style()
-    chf = chf_cohort(load_support2())
+    full = load_support2()
+    split = make_split(full)
+    chf = chf_cohort(full[split == "train"])
 
     header("SUPPORT2 -- cohort profile, data quality, functional form")
-    print(f"  CHF cohort: {len(chf):,} patients, {int(chf[OUTCOME_EVENT].sum()):,} deaths")
+    print(f"  CHF TRAINING cohort: {len(chf):,} patients, "
+          f"{int(chf[OUTCOME_EVENT].sum()):,} deaths")
+    print("  The 30% held-out partition is not read here (seed 20260901).")
 
     q7_table_one(chf)
     q8_plausibility(chf)

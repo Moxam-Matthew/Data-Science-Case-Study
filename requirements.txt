@@ -1,22 +1,25 @@
-# Core
-pandas>=2.0
-numpy>=1.24
-scipy>=1.10
-matplotlib>=3.7
+# Pinned exactly. The project claims reproducibility -- a floating dependency
+# range does not deliver it, since a minor release can change a default and
+# move a p-value. Verified working set as of 2026-09-01, Python 3.11.
+pandas==2.2.2
+numpy==2.0.0
+scipy==1.17.1
+matplotlib==3.9.0
 
-# Modelling
 # statsmodels, not sklearn, for the interpretable logistic regression:
 # sklearn.LogisticRegression applies L2 by default (penalty='l2', C=1.0), so its
 # coefficients are penalised rather than maximum-likelihood, and it exposes no
 # standard errors. Clinical reporting needs odds ratios with 95% CIs.
-statsmodels>=0.14
+# Also supplies the Benjamini-Hochberg FDR correction used throughout.
+statsmodels==0.15.0
+
 # sklearn is used for Pipeline/ColumnTransformer (imputation inside CV folds),
 # cross-validation, metrics, and IterativeImputer (MICE).
-scikit-learn>=1.3
-xgboost>=2.0
+scikit-learn==1.8.0
+xgboost==3.2.0
 
-# Survival / competing risks
-lifelines>=0.27
+# Survival: Kaplan-Meier, reverse KM for follow-up, log-rank, Cox.
+lifelines==0.30.3
 
-# Reproducible data access (UCI id=880) so no row-level data is committed
-ucimlrepo>=0.0.7
+# Reproducible data access (UCI id=880) so no row-level data is committed.
+ucimlrepo==0.0.7

@@ -43,6 +43,7 @@ from scipy import stats
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 import viz  # noqa: E402
+from stats_utils import add_fdr, followup_summary  # noqa: E402
 from support2 import (  # noqa: E402
     CANDIDATE_PREDICTORS,
     CHF_LABEL,
@@ -50,7 +51,9 @@ from support2 import (  # noqa: E402
     OUTCOME_TIME,
     audit_columns,
     chf_cohort,
+    cohort_flow,
     load_support2,
+    make_split,
 )
 
 pd.set_option("display.width", 200)
@@ -77,12 +80,20 @@ def q1_outcome_structure(df: pd.DataFrame) -> None:
     censored = (event == 0)
     print(f"  deaths observed      {event.sum():>6,} / {len(df):,} ({event.mean()*100:.1f}%)")
     print(f"  censored (alive)     {censored.sum():>6,} ({censored.mean()*100:.1f}%)")
-    print(f"  follow-up, median    {time.median():>6,.0f} days")
-    print(f"  follow-up, range     {time.min():.0f} to {time.max():,.0f} days")
 
-    print("\n  Follow-up time among the censored -- if these were all long, a binary")
-    print("  flag would be nearly harmless. Are they?")
-    q = censored_time = time[censored]
+    print("\n  Three different quantities, often confused. Only one is follow-up:")
+    fu = followup_summary(df, OUTCOME_TIME, OUTCOME_EVENT)
+    print(f"    median of the time column      {fu['median_time_to_event_or_censor']:>7,.0f} days"
+          "   <- a median TIME-TO-EVENT, pulled down by every death")
+    print(f"    median among censored only     {fu['median_time_among_censored']:>7,.0f} days"
+          "   <- ad hoc; ignores the observed follow-up of those who died")
+    print(f"    reverse Kaplan-Meier           {fu['median_followup_reverseKM']:>7,.0f} days"
+          "   <- median FOLLOW-UP; the correct estimator")
+    print(f"    longest observation            {fu['max_observed']:>7,.0f} days")
+
+    print("\n  Follow-up among the censored -- if these were all short, early dropout")
+    print("  would bias a binary flag. Are they?")
+    censored_time = time[censored]
     for pct in (10, 25, 50, 75, 90):
         print(f"    {pct:>2}th percentile   {np.percentile(censored_time, pct):>6,.0f} days")
     print(f"\n  Censored before 1 year: {(censored_time < 365).sum():,} "
@@ -90,11 +101,11 @@ def q1_outcome_structure(df: pd.DataFrame) -> None:
 
     print("\n  Same question inside the CHF cohort:")
     chf = chf_cohort(df)
-    chf_cens = chf[chf[OUTCOME_EVENT] == 0][OUTCOME_TIME]
-    print(f"    n={len(chf):,}  deaths={chf[OUTCOME_EVENT].sum():,} "
-          f"({chf[OUTCOME_EVENT].mean()*100:.1f}%)  censored={len(chf_cens):,}")
-    print(f"    median follow-up {chf[OUTCOME_TIME].median():,.0f} days; "
-          f"{(chf_cens < 365).mean()*100:.1f}% of censored followed <1 year")
+    cfu = followup_summary(chf, OUTCOME_TIME, OUTCOME_EVENT)
+    print(f"    n={cfu['n']:,}  deaths={cfu['events']:,}  censored={cfu['censored']:,}")
+    print(f"    median follow-up (reverse KM) {cfu['median_followup_reverseKM']:,.0f} days")
+    chf_cens = chf.loc[chf[OUTCOME_EVENT] == 0, OUTCOME_TIME]
+    print(f"    {(chf_cens < 365).mean()*100:.1f}% of censored followed <1 year")
 
 
 # ── Q2. Column governance ────────────────────────────────────────────────────
@@ -235,8 +246,11 @@ def q5_binary_vs_logrank(df: pd.DataFrame) -> pd.DataFrame:
                      "censored_fu_obs": fu_obs, "censored_fu_missing": fu_mis,
                      "fu_ratio": fu_mis / fu_obs})
     out = pd.DataFrame(rows).sort_values("gap_pp", ascending=False).reset_index(drop=True)
+    # Multiplicity: this is one test per variable, so the small p-values must
+    # clear a corrected bar before they count as findings.
+    out = add_fdr(out, p_col="p_logrank", q_col="q_logrank")
     out["verdict"] = np.where(
-        (out.p_binary < 0.05) & (out.p_logrank < 0.05), "real signal",
+        (out.p_binary < 0.05) & (out.q_logrank < 0.05), "real signal",
         np.where(out.p_binary < 0.05, "follow-up artefact", "no signal"))
 
     show = out.copy()
@@ -244,9 +258,14 @@ def q5_binary_vs_logrank(df: pd.DataFrame) -> pd.DataFrame:
         show[c] = show[c].round(2)
     for c in ("censored_fu_obs", "censored_fu_missing"):
         show[c] = show[c].round(0)
-    for c in ("p_binary", "p_logrank"):
-        show[c] = show[c].apply(lambda v: "<0.001" if v < 0.001 else f"{v:.3f}")
-    print(show.to_string(index=False))
+    for c in ("p_binary", "p_logrank", "q_logrank"):
+        show[c] = show[c].apply(
+            lambda v: "" if pd.isna(v) else ("<0.001" if v < 0.001 else f"{v:.3f}"))
+    print(show[["variable", "gap_pp", "p_binary", "p_logrank", "q_logrank",
+                "censored_fu_obs", "censored_fu_missing", "fu_ratio",
+                "verdict"]].to_string(index=False))
+    print(f"\n  q_logrank is the Benjamini-Hochberg FDR q-value across "
+          f"{int(out.p_logrank.notna().sum())} tests. The verdict column uses q, not p.")
 
     print("\n  `fu_ratio` is median follow-up among CENSORED patients, missing-group")
     print("  over observed-group. A ratio near 1 means the two groups were watched")
@@ -384,12 +403,46 @@ ANSWERS = """
 ANSWERS
 {rule}
 
+A0. WHY THERE IS A HELD-OUT PARTITION, AND WHY IT IS LOCKED
+    Not a question in the list, but the first thing a reviewer should ask.
+
+    Across 01_eda.py and 02_profile.py this project looks at the outcome
+    roughly sixty times: twelve missingness contrasts, twelve log-rank tests,
+    around thirty Table 1 comparisons, seven tests of functional form. Each one
+    is a decision point at which the data could steer a modelling choice. That
+    accumulated steering is analyst degrees of freedom, and it makes every
+    subsequent performance estimate optimistic by an amount nobody can compute
+    after the fact.
+
+    Two honest responses exist. Report everything as exploratory and correct
+    the optimism by bootstrap. Or partition once, before modelling, and keep
+    one part unseen. This project does both: the exploratory findings below are
+    labelled hypothesis-generating and carry FDR-adjusted q-values, and a 30%
+    partition is held out by fixed seed and never read.
+
+    The partition is generated from a constant (seed 20260901, stratified on
+    death) rather than stored, so it reproduces exactly without committing
+    patient rows -- the same constraint that shapes the loader.
+
+    What this buys, said plainly: the confirmatory estimates will come from
+    data that had no opportunity to influence any choice made here. Without it,
+    a held-out AUC reported at the end of this project would be a number with
+    no defensible interpretation.
+
 A1. WHY NOT THE BINARY FLAG
     Start by refusing the textbook worry. The standard fear is heavy early
-    dropout, and it does not apply here: only 2.2% of censored patients were
-    followed less than a year, and their median follow-up is 918 days.
-    Censoring in SUPPORT2 is mostly administrative -- the study ended. Say that
-    out loud rather than reciting a concern the data does not support.
+    dropout, and it does not apply here: only about 2% of censored patients
+    were followed less than a year. Censoring in SUPPORT2 is mostly
+    administrative -- the study ended. Say that out loud rather than reciting a
+    concern the data does not support.
+
+    Note also which follow-up number you quote. The median of the time column
+    is a median time-to-event: every death drags it down, and it says nothing
+    about how long the cohort was watched. Median follow-up needs the reverse
+    Kaplan-Meier, inverting the indicator so censoring is the event. On this
+    cohort the two differ by roughly threefold. Quoting the first as "median
+    follow-up" is a common and consequential error, and it is especially
+    embarrassing in a project whose central finding is about follow-up.
 
     The real objections are different, and stronger.
 
@@ -496,16 +549,24 @@ A5. WHY THE TWO TESTS DISAGREE
 
     The variables sort themselves cleanly by this ratio:
 
-      * ratio ~2.5, log-rank null -- bun, urine, glucose. All artefact. Their
+      * ratio ~2.55, log-rank null -- bun, urine, glucose. All artefact. Their
         binary p-values are the most significant on the list and mean nothing.
-      * ratio ~1.0-1.1, log-rank significant -- adlp, income, edu. Real.
+      * ratio ~1.1, surviving FDR correction -- income and adlp. Real.
 
-    Notice what the survivors are. Not laboratory values at all -- they are the
-    three variables collected by *interviewing the patient*. Non-response to an
+    Notice what the survivors are. Not laboratory values at all -- they are
+    variables collected by *interviewing the patient*. Non-response to an
     interview is caused by the patient's condition: too unwell, too confused,
     or dead before the interview happened. That is missingness driven by the
     outcome process itself, which is the textbook definition of informative,
     and it is the one place here where the textbook actually applies.
+
+    One survivor did not survive. On the full cohort with unadjusted p-values,
+    education looked real (p=0.004). On the training partition with FDR
+    correction across twelve tests it is gone (p=0.124, q=0.253). Nothing about
+    education changed -- what changed is that it was no longer being judged
+    against a bar it had help clearing. Marginal findings are exactly the ones
+    that evaporate under a holdout and a multiplicity correction, which is the
+    argument for imposing both before you become attached to a result.
 
     Why the labs carry a 2.6x follow-up imbalance is worth stating as a
     hypothesis rather than a fact: SUPPORT enrolled in two phases several years
@@ -535,13 +596,13 @@ A6. WHAT TO ACTUALLY DO
          auxiliaries Q4 identified -- dzgroup and care-intensity measures --
          since those are what make the MAR assumption tenable for the
          case-mix-driven group.
-      2. Missingness indicators for adlp, income and edu only. This is the
-         trap the question points at: after Q3 the obvious move is to flag
-         bun, urine and glucose, and that would be wrong. Those indicators
-         encode enrolment era, not patient state. You would spend degrees of
-         freedom on noise and then be asked, in front of clinicians, to explain
-         a coefficient for "BUN was not drawn" -- with no clinical story to
-         tell, because there isn't one.
+      2. Missingness indicators for adlp and income only -- the two that clear
+         FDR correction on training data. This is the trap the question points
+         at: after Q3 the obvious move is to flag bun, urine and glucose, and
+         that would be wrong. Those indicators encode enrolment era, not
+         patient state. You would spend degrees of freedom on noise and then be
+         asked, in front of clinicians, to explain a coefficient for "BUN was
+         not drawn" -- with no clinical story to tell, because there isn't one.
       3. Imputation fitted inside each cross-validation fold. Imputing on the
          full dataset before splitting leaks test information into training,
          and it is the most common silent error in pipelines like this.
@@ -561,11 +622,32 @@ A6. WHAT TO ACTUALLY DO
 
 def main() -> None:
     viz.apply_style()
-    df = load_support2()
+    full = load_support2()
 
     header("SUPPORT2 -- exploratory analysis")
-    print(f"  {df.shape[0]:,} patients x {df.shape[1]} columns")
-    print(f"  CHF cohort: {(df.dzgroup == CHF_LABEL).sum():,} patients")
+    print(f"  {full.shape[0]:,} patients x {full.shape[1]} columns")
+
+    print("\n  Cohort derivation (CONSORT-style attrition):")
+    flow = cohort_flow(full)
+    for _, r in flow.iterrows():
+        note = f"  (-{r['excluded']:,})" if r["excluded"] else ""
+        print(f"    {r['remaining']:>6,}  {r['step']}{note}")
+
+    # The partition is defined on the whole enrolled cohort, not on CHF alone,
+    # because Q4 compares CHF against the other disease groups and both sides
+    # of that comparison must come from the same side of the split.
+    split = make_split(full)
+    df = full[split == "train"].copy()
+    chf_all, chf_tr = chf_cohort(full), chf_cohort(df)
+
+    print(f"\n  Train/test partition (seed 20260901, stratified on death):")
+    print(f"    all enrolled   train {(split=='train').sum():,}   "
+          f"test {(split=='test').sum():,}")
+    print(f"    CHF cohort     train {len(chf_tr):,}   test {len(chf_all)-len(chf_tr):,}")
+    print(f"    event rate     train {df[OUTCOME_EVENT].mean()*100:.1f}%   "
+          f"test {full.loc[split=='test', OUTCOME_EVENT].mean()*100:.1f}%")
+    print("\n  Every number below is computed on TRAIN ONLY. The test partition is")
+    print("  not read by this script or by 02_profile.py. See A0 for why.")
 
     q1_outcome_structure(df)
     q2_leakage_audit(df)
