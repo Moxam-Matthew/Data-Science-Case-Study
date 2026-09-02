@@ -48,6 +48,46 @@ with no clinical story to tell.
 
 ---
 
+## Cohort profile and functional form
+
+[`02_profile.py`](02_profile.py) covers what a clinical reviewer checks next.
+
+**Table 1** is reported with **standardised mean differences, not p-values**. With
+n=1,387 a clinically trivial difference clears p<0.05, so the p-value measures
+sample size rather than importance — and there is no sampling to make inference
+about, since these *are* the two outcome groups. |SMD| > 0.1 is the conventional
+imbalance threshold.
+
+**Physiologic plausibility** flagged 22 impossible cell values, including an albumin
+of **29.0 g/dL** (normal 3.5–5.0; incompatible with life above ~7) which alone
+produces the skew of 12.1, and zeros in mean arterial pressure, heart rate and
+respiratory rate. These are set to missing rather than dropped — it is a cell-level
+error, and deleting the patient discards their valid measurements too.
+
+**Linearity is tested, not assumed.** A likelihood-ratio test of a linear term
+against a natural cubic spline:
+
+![Functional form](output/figures/05_functional_form.png)
+
+Creatinine rejects linearity decisively (p<0.001, AIC gain 10.4) — risk steps up
+around 1.2 mg/dL then **plateaus**, while a linear term extrapolates a rising slope
+into a tail where almost no patients exist. Heart rate also rejects (p=0.024). But
+age, mean arterial pressure, temperature and BUN all test as adequately linear, and
+their splines are *worse* by AIC. Eyeballing the age octiles suggested curvature;
+the formal test disagreed. Testing beat assuming in both directions.
+
+One caution the test surfaced: `resp` read non-linear at p=0.040 before the
+plausibility bounds were applied and linear at p=0.085 after — a verdict flipped by
+one impossible value. Clean first, then test.
+
+**Collinearity** turned up an identity rather than an association: `adls` and `adlsc`
+correlate at **rho = 1.000** and the design matrix is rank-deficient, because `adlsc`
+is a derived summary of the components. `bun` and `crea` at rho = 0.79 is the real
+concern for an interpretable model, where collinearity inflates standard errors and
+makes which predictor "wins" close to arbitrary.
+
+---
+
 ## Why these methods
 
 **Discrimination is not enough.** A model can reach AUC 0.75 and still tell a patient
@@ -72,8 +112,10 @@ incidence is estimated with Aalen–Johansen rather than treating death as censo
 ## Structure
 
 ```
-├── 01_eda.py                  # Questions 1–6: outcome structure, leakage audit,
-│                              #   missingness mechanism, binary vs time-to-event
+├── 01_eda.py                  # Q1–6:  outcome structure, leakage audit,
+│                              #        missingness mechanism, binary vs time-to-event
+├── 02_profile.py              # Q7–11: Table 1, physiologic plausibility,
+│                              #        distributions, functional form, collinearity
 ├── src/
 │   ├── support2.py            # Loading + column governance (what may be a predictor)
 │   └── viz.py                 # Shared figure styling; CVD-validated palette
@@ -86,6 +128,7 @@ Run:
 ```bash
 pip install -r requirements.txt
 python 01_eda.py
+python 02_profile.py
 ```
 
 No patient data is committed. The loader reads a local copy if present and otherwise
@@ -113,6 +156,7 @@ another model's output, and constructed-from-the-predictors.
 ## Status
 
 - [x] Exploratory analysis, missingness mechanism, leakage audit
+- [x] Table 1 with SMDs, plausibility bounds, functional form, collinearity
 - [ ] Multiple imputation inside CV folds; complete-case and normal-fill sensitivity
 - [ ] Logistic regression with odds ratios and 95% CIs
 - [ ] Gradient boosting comparator, with a confidence interval on ΔAUC

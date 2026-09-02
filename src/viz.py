@@ -31,6 +31,24 @@ GRIDLINE = "#e1e0d9"
 BASELINE = "#c3c2b7"
 
 
+def diverging_cmap():
+    """
+    Blue <-> red with a neutral grey midpoint, for signed quantities such as
+    correlation. Two hues that read as opposite poles, and a midpoint that
+    reads as 'nothing' -- never a rainbow, never a hue at the middle.
+    """
+    from matplotlib.colors import LinearSegmentedColormap
+    return LinearSegmentedColormap.from_list(
+        "diverging_br", ["#184f95", "#2a78d6", "#f0efec", "#e34948", "#a32222"])
+
+
+def sequential_cmap():
+    """Single hue, light to dark, for unsigned magnitude."""
+    from matplotlib.colors import LinearSegmentedColormap
+    return LinearSegmentedColormap.from_list(
+        "sequential_blue", ["#cde2fb", "#86b6ef", "#3987e5", "#256abf", "#0d366b"])
+
+
 def apply_style() -> None:
     """Install the shared rcParams. Call once at the top of a script."""
     mpl.rcParams.update({
