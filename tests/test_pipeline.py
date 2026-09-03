@@ -149,3 +149,58 @@ class TestColumnGovernance:
         both = cohort.chf_train[["adls", "adlsc"]].dropna()
         assert len(both) > 100
         assert (both.adls - both.adlsc).abs().max() == pytest.approx(0.0, abs=1e-9)
+
+
+class TestSourceFileShape:
+    """The shipped CSV has 47 header fields and 48 data fields: an unnamed
+    leading patient id. Pandas resolves that by promoting column 0 to the index,
+    which is correct but was undeclared -- and make_split() partitions on that
+    index, so the train/test assignment was keyed on an identifier nobody had
+    named. These pin the behaviour."""
+
+    def test_header_is_one_field_short_of_the_data(self):
+        from support2 import CSV_PATH
+
+        with open(CSV_PATH, encoding="utf-8") as fh:
+            header = fh.readline().rstrip("\n").split(",")
+            row = fh.readline().rstrip("\n").split(",")
+        assert len(row) == len(header) + 1, (
+            "the source file no longer has an unnamed id column; index_col=0 "
+            "would now capture a real variable and shift every column"
+        )
+
+    def test_index_is_the_named_patient_id(self, raw):
+        from support2 import ID_COLUMN
+
+        assert raw.index.name == ID_COLUMN
+        assert raw.index.is_unique
+        assert raw.index.min() == 1
+        assert raw.index.max() == len(raw)
+
+    def test_columns_are_not_shifted(self, raw):
+        """A one-column shift is silent: the frame loads, and `age` fills with
+        patient ids. These are the cheap alignment checks that catch it."""
+        assert raw["age"].between(0, 120).all()
+        assert set(raw["sex"].dropna().unique()) == {"male", "female"}
+        assert set(raw["death"].dropna().unique()) <= {0, 1}
+        assert raw["d.time"].min() > 0
+
+    def test_validate_rejects_a_shifted_header(self, raw):
+        from support2 import _validate
+
+        shifted = raw.reset_index()
+        shifted.columns = list(raw.columns) + ["extra"]
+        with pytest.raises(ValueError, match="age"):
+            _validate(shifted[list(raw.columns)])
+
+    def test_validate_rejects_wrong_column_count(self, raw):
+        from support2 import _validate
+
+        with pytest.raises(ValueError, match="expected 47 columns"):
+            _validate(raw.iloc[:, :40])
+
+    def test_shipped_column_order_matches_the_file(self, raw):
+        """The download path reindexes to this order so both paths agree."""
+        from support2 import SHIPPED_COLUMN_ORDER
+
+        assert list(raw.columns) == SHIPPED_COLUMN_ORDER

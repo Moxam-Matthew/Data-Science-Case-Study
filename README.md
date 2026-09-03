@@ -42,6 +42,16 @@ go missing *together*, in whole rows, because those patients were enrolled befor
 protocol collected them. `d.time` is follow-up days and `death` is the event
 indicator — a `death` of 0 means alive at last contact, not survived.
 
+**A note on the source file, because it is a trap.** The shipped CSV has **47 header
+fields and 48 data fields** — the leading column holds an unnamed patient id. Pandas
+resolves that mismatch by silently promoting column 0 to the index, which is correct,
+but the project relied on it without saying so. That mattered: `make_split()`
+partitions on `df.index`, so the train/test assignment was keyed on an identifier
+nobody had declared. The id is now read with an explicit `index_col=0`, named `id`,
+and validated on load — a shifted header produces a frame that parses cleanly and
+analyses to nonsense, so `_validate()` checks column count, id uniqueness, and that
+`age` still holds ages rather than record numbers. Four tests pin it.
+
 Illustrative rows, reconstructed to match the real distributions. SUPPORT2 is openly
 licensed so publishing actual rows would be permitted, but the pipeline is built to
 the standard most clinical data use agreements impose — no row-level records in the

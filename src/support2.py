@@ -33,6 +33,17 @@ CSV_PATH = DATA_DIR / "support2.csv"
 ZIP_PATH = DATA_DIR / "support2csv.zip"
 UCI_DATASET_ID = 880
 
+# The shipped CSV carries an unnamed leading id column: 47 header fields against
+# 48 data fields. Named here so the promotion to index is declared rather than
+# inferred from that off-by-one, and so both load paths agree.
+ID_COLUMN = "id"
+N_COLUMNS = 47
+
+# Column order as shipped. ucimlrepo returns features and targets separately,
+# which moves `death` from position 1 to position 45; restoring this order keeps
+# the download path interchangeable with the local-file path.
+SHIPPED_COLUMN_ORDER = ['age', 'death', 'sex', 'hospdead', 'slos', 'd.time', 'dzgroup', 'dzclass', 'num.co', 'edu', 'income', 'scoma', 'charges', 'totcst', 'totmcst', 'avtisst', 'race', 'sps', 'aps', 'surv2m', 'surv6m', 'hday', 'diabetes', 'dementia', 'ca', 'prg2m', 'prg6m', 'dnr', 'dnrday', 'meanbp', 'wblc', 'hrt', 'resp', 'temp', 'pafi', 'alb', 'bili', 'crea', 'sod', 'ph', 'glucose', 'bun', 'urine', 'adlp', 'adls', 'sfdm2', 'adlsc']
+
 
 # ── Column governance ────────────────────────────────────────────────────────
 # The single most consequential decision in a clinical prediction model is not
@@ -183,21 +194,73 @@ def apply_plausibility_bounds(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
 
 def load_support2(path: Path | None = None) -> pd.DataFrame:
     """
-    Return the full SUPPORT2 frame (9,105 x 47).
+    Return the SUPPORT2 frame, 9,105 x 47, indexed by patient id.
 
     Resolution order: an explicit path, then the extracted CSV, then the
     downloaded zip, then a fresh download from UCI.
+
+    A note on the id column, because it is not obvious from the file. The
+    shipped CSV has 47 header fields and 48 data fields -- the leading column
+    holds a patient id that the header never names. Pandas resolves that
+    mismatch by silently promoting the first column to the index, which happens
+    to be correct, but the project relied on it without saying so.
+
+    That mattered more than it looks: make_split() partitions on df.index, so
+    the train/test assignment was keyed on an identifier nobody had declared.
+    The id is now named explicitly and validated, so the behaviour is a
+    guarantee rather than a coincidence.
     """
     if path is not None:
-        return pd.read_csv(path)
-    if CSV_PATH.exists():
-        return pd.read_csv(CSV_PATH)
-    if ZIP_PATH.exists():
+        df = _read_csv_with_id(path)
+    elif CSV_PATH.exists():
+        df = _read_csv_with_id(CSV_PATH)
+    elif ZIP_PATH.exists():
         with zipfile.ZipFile(ZIP_PATH) as zf:
             name = next(n for n in zf.namelist() if n.endswith(".csv"))
             with zf.open(name) as fh:
-                return pd.read_csv(fh)
-    return _download_from_uci()
+                df = _read_csv_with_id(fh)
+    else:
+        df = _download_from_uci()
+    return _validate(df)
+
+
+def _read_csv_with_id(source) -> pd.DataFrame:
+    """
+    Read the shipped CSV, promoting the unnamed leading column to a named index.
+
+    `index_col=0` is explicit rather than relying on pandas inferring it from
+    the off-by-one header. If UCI ever ships a file whose header names all 48
+    columns, the inference would stop firing and every column would shift by
+    one; this raises instead, and _validate() catches it either way.
+    """
+    df = pd.read_csv(source, index_col=0)
+    df.index.name = ID_COLUMN
+    return df
+
+
+def _validate(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Fail loudly on a source file that is not the one this project was written
+    against. Silent misalignment is the failure mode being guarded: a shifted
+    header produces a frame that loads cleanly and analyses to nonsense.
+    """
+    if df.shape[1] != N_COLUMNS:
+        raise ValueError(
+            f"expected {N_COLUMNS} columns, got {df.shape[1]}. If the source file "
+            f"now names its id column, read it with index_col='id' instead."
+        )
+    missing = {"age", "death", "d.time", "dzgroup"} - set(df.columns)
+    if missing:
+        raise ValueError(f"expected columns absent: {sorted(missing)}")
+    if not df.index.is_unique:
+        raise ValueError("patient ids are not unique; the index is unusable as a key")
+    # Cheap alignment check. A one-column header shift puts an id into `age`.
+    if not df["age"].between(0, 120).all():
+        raise ValueError(
+            "`age` holds values outside 0-120, which is the signature of a "
+            "shifted header rather than of unusual patients"
+        )
+    return df
 
 
 def _download_from_uci() -> pd.DataFrame:
@@ -211,9 +274,17 @@ def _download_from_uci() -> pd.DataFrame:
         ) from exc
 
     repo = fetch_ucirepo(id=UCI_DATASET_ID)
+    # ucimlrepo splits the file into features and targets, which reorders the
+    # columns and drops the id. Restore the shipped column order and rebuild a
+    # 1-based id, so this path and the local-CSV path are interchangeable --
+    # otherwise the same code gives two different frames depending on whether a
+    # local copy happened to exist.
     df = pd.concat([repo.data.features, repo.data.targets], axis=1)
+    df = df.reindex(columns=[c for c in SHIPPED_COLUMN_ORDER if c in df.columns])
+    df.index = pd.RangeIndex(start=1, stop=len(df) + 1, name=ID_COLUMN)
     DATA_DIR.mkdir(exist_ok=True)
-    df.to_csv(CSV_PATH, index=False)
+    # index=True, so a reload sees the same 48-field rows the shipped file has.
+    df.to_csv(CSV_PATH, index=True, index_label="")
     return df
 
 
