@@ -79,12 +79,24 @@ LEAKAGE_COLUMNS: dict[str, str] = {
     "avtisst": "Average TISS score across the stay. Post-hoc care intensity.",
     "dnrday": "Day the DNR order was written. Encodes timing of a decision "
               "that often follows clinical deterioration.",
+    "dnr": "Superseded by dnr_preexisting and dnr_in_admission, which separate a "
+           "patient's advance directive from a care-limitation decision taken "
+           "during the admission. The raw column conflates them.",
+    "dnr_in_admission": "DNR order written DURING the study admission. Not a "
+                        "disease state -- a clinical response to deterioration "
+                        "and usually a decision to limit treatment. Mortality "
+                        "86.7% against 56.8% with no DNR, while a PRE-EXISTING "
+                        "directive carries 58.8%, essentially the no-DNR rate. "
+                        "A model using it learns that clinicians judged the "
+                        "patient to be dying and then predicts death: a "
+                        "self-fulfilling prophecy that would recommend less "
+                        "aggressive care for patients already receiving it.",
 }
 
 # Available at or near admission, so legitimate candidate predictors.
 DEMOGRAPHIC = ["age", "sex", "race", "edu", "income"]
 CLINICAL = ["dzgroup", "dzclass", "num.co", "scoma", "diabetes", "dementia",
-            "ca", "hday", "dnr"]
+            "ca", "hday", "dnr_preexisting"]
 PHYSIOLOGY = ["meanbp", "hrt", "resp", "temp", "wblc", "pafi", "alb", "bili",
               "crea", "sod", "ph", "glucose", "bun", "urine"]
 FUNCTIONAL = ["adlp", "adls"]
@@ -151,6 +163,39 @@ PLAUSIBLE_BOUNDS: dict[str, tuple[float, float]] = {
     "bun": (1, 250),         # mg/dL
     "pafi": (20, 700),       # PaO2/FiO2 ratio
 }
+
+
+DNR_PREEXISTING_LABEL = "dnr before sadm"
+DNR_IN_ADMISSION_LABEL = "dnr after sadm"
+
+
+def derive_dnr_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Split `dnr` into the two clinically distinct things it conflates.
+
+    `dnr_preexisting`  -- an advance directive the patient arrived with. A
+        statement of their own values, known at the prediction origin, and a
+        legitimate covariate. Mortality 58.8%, against 56.8% for no DNR.
+
+    `dnr_in_admission` -- an order written during the study admission.
+        Mortality 86.7%. This is not a property of the patient; it is a decision
+        taken in response to deterioration, and usually a decision to limit
+        treatment. It is excluded for the same reason `dnrday` is.
+
+    That the pre-existing level carries essentially the no-DNR mortality while
+    the in-admission level nearly doubles it is the evidence for the split. Had
+    both levels behaved alike, the variable would be a patient characteristic
+    and could stay whole.
+    """
+    out = df.copy()
+    if "dnr" not in out:
+        return out
+    known = out["dnr"].notna()
+    out["dnr_preexisting"] = np.where(
+        known, (out["dnr"] == DNR_PREEXISTING_LABEL).astype(float), np.nan)
+    out["dnr_in_admission"] = np.where(
+        known, (out["dnr"] == DNR_IN_ADMISSION_LABEL).astype(float), np.nan)
+    return out
 
 
 def find_implausible(df: pd.DataFrame) -> pd.DataFrame:
@@ -400,6 +445,7 @@ def analysis_frames(test_frac: float = 0.30, seed: int = 20260901) -> Cohort:
     """
     raw = load_support2()
     cleaned, n_voided = apply_plausibility_bounds(raw)
+    cleaned = derive_dnr_features(cleaned)
     split = make_split(cleaned, test_frac=test_frac, seed=seed)
     full_train = cleaned[split == "train"].copy()
     return Cohort(raw=raw, full_train=full_train,

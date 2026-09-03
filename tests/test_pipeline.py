@@ -204,3 +204,66 @@ class TestSourceFileShape:
         from support2 import SHIPPED_COLUMN_ORDER
 
         assert list(raw.columns) == SHIPPED_COLUMN_ORDER
+
+
+class TestDNRSplit:
+    """DNR is the strongest predictor in the cohort but conflates two things: a
+    patient's advance directive and a clinician's decision to limit treatment.
+    Keeping the second would encode a self-fulfilling prophecy -- the model
+    predicts death because care was withdrawn. These pin the split."""
+
+    def test_raw_dnr_is_not_a_candidate_predictor(self):
+        assert "dnr" not in CANDIDATE_PREDICTORS
+
+    def test_in_admission_level_is_excluded_with_a_reason(self):
+        from support2 import LEAKAGE_COLUMNS
+
+        assert "dnr_in_admission" in LEAKAGE_COLUMNS
+        assert "self-fulfilling" in LEAKAGE_COLUMNS["dnr_in_admission"]
+
+    def test_preexisting_directive_is_kept(self, cohort):
+        assert "dnr_preexisting" in CANDIDATE_PREDICTORS
+        assert "dnr_preexisting" in cohort.chf_train.columns
+
+    def test_derived_levels_are_mutually_exclusive(self, cohort):
+        chf = cohort.chf_train
+        both = (chf.dnr_preexisting == 1) & (chf.dnr_in_admission == 1)
+        assert not both.any()
+
+    def test_derived_levels_reconstruct_the_original(self, cohort):
+        from support2 import DNR_IN_ADMISSION_LABEL, DNR_PREEXISTING_LABEL
+
+        chf = cohort.chf_train
+        known = chf.dnr.notna()
+        assert (chf.loc[known, "dnr_preexisting"] == 1).sum() == (
+            chf.dnr == DNR_PREEXISTING_LABEL).sum()
+        assert (chf.loc[known, "dnr_in_admission"] == 1).sum() == (
+            chf.dnr == DNR_IN_ADMISSION_LABEL).sum()
+
+    def test_missing_dnr_propagates_rather_than_becoming_zero(self, cohort):
+        """A patient with unknown DNR status is not a patient without a DNR."""
+        chf = cohort.chf_train
+        unknown = chf.dnr.isna()
+        if unknown.any():
+            assert chf.loc[unknown, "dnr_preexisting"].isna().all()
+            assert chf.loc[unknown, "dnr_in_admission"].isna().all()
+
+    def test_the_split_is_justified_by_the_data(self, cohort):
+        """The whole argument: a pre-existing directive behaves like no DNR,
+        an in-admission order does not. If that ever stops being true, the
+        split is arbitrary and the write-up is wrong."""
+        from lifelines.statistics import logrank_test
+        from support2 import (DNR_IN_ADMISSION_LABEL, DNR_PREEXISTING_LABEL,
+                              OUTCOME_TIME)
+
+        chf = cohort.chf_train
+        none = chf[chf.dnr == "no dnr"]
+        pre = chf[chf.dnr == DNR_PREEXISTING_LABEL]
+        ina = chf[chf.dnr == DNR_IN_ADMISSION_LABEL]
+
+        p_pre = logrank_test(pre[OUTCOME_TIME], none[OUTCOME_TIME],
+                             pre[OUTCOME_EVENT], none[OUTCOME_EVENT]).p_value
+        p_ina = logrank_test(ina[OUTCOME_TIME], none[OUTCOME_TIME],
+                             ina[OUTCOME_EVENT], none[OUTCOME_EVENT]).p_value
+        assert p_pre > 0.10, "pre-existing directive should track the no-DNR curve"
+        assert p_ina < 0.001, "in-admission order should separate sharply"

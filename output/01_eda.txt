@@ -50,7 +50,7 @@ QUESTION 2: Which columns must never enter the feature matrix, and how
 would you recognise one you had not been warned about?
 ------------------------------------------------------------------------------
 role
-excluded     14
+excluded     16
 outcome       3
 predictor    30
 
@@ -66,9 +66,11 @@ predictor    30
     surv6m     As surv2m, at 6 months.
     prg2m      Attending physician's 2-month survival estimate. This is the clinical benchmark to beat, not a model input.
     prg6m      As prg2m, at 6 months.
+    dnr        Superseded by dnr_preexisting and dnr_in_admission, which separate a patient's advance directive from a care-limitation decision taken during the admission. The raw column conflates them.
     dnrday     Day the DNR order was written. Encodes timing of a decision that often follows clinical deterioration.
     sfdm2      Functional disability measured at 2 months. Post-baseline; its largest category is literally '<2 mo. follow-up'.
     adlsc      Derived ADL summary; rho = 1.000 with adls, design matrix rank-deficient when both are present.
+    dnr_in_admission DNR order written DURING the study admission. Not a disease state -- a clinical response to deterioration and usually a decision to limit treatment. Mortality 86.7% against 56.8% with no DNR, while a PRE-EXISTING directive carries 58.8%, essentially the no-DNR rate. A model using it learns that clinicians judged the patient to be dying and then predicts death: a self-fulfilling prophecy that would recommend less aggressive care for patients already receiving it.
 
   Not yet classified: none
 

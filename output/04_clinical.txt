@@ -1,0 +1,262 @@
+
+==============================================================================
+SUPPORT2 -- the clinical read
+==============================================================================
+  CHF TRAINING cohort: 978 patients, 599 deaths
+
+------------------------------------------------------------------------------
+QUESTION 18: Write the opening paragraph of a Results section. Who are these
+patients, in the terms a clinician thinks in?
+------------------------------------------------------------------------------
+  978 patients with a primary diagnosis of congestive heart failure,
+  of whom 599 died during follow-up.
+
+    age                 median 68 (IQR 58-76); 28.5% aged 75+
+    sex                 37.5% female
+    comorbidity burden  median 3; 58.5% with 3 or more
+    diabetes            32.3%
+    dementia            3.1%
+    any cancer          11.2%
+    creatinine          median 1.4 mg/dL; 39.6% above 1.5
+    mean arterial BP    median 75 mmHg
+    ADL dependence      20.0% dependent in 2+ activities
+    DNR order (any)     16.4%
+    race                white 75.1%, black 19.0%, hispanic 4.3%, other 1.0%, asian 0.6%
+
+------------------------------------------------------------------------------
+QUESTION 19: DNR status is the strongest single predictor in this cohort, ahead
+of every physiologic variable. Should it be in the model?
+------------------------------------------------------------------------------
+                   n  deaths  mortality  median_surv
+dnr                                                 
+dnr after sadm   143     124       86.7         99.0
+dnr before sadm   17      10       58.8        550.0
+no dnr           815     463       56.8        591.0
+
+  vs no DNR, log-rank:  pre-existing p=0.882   in-admission p=<0.001
+
+  Ranked against the physiologic predictors (median split):
+        variable  gap_pp
+DNR in admission    29.9
+           scoma    19.4
+          num.co    11.0
+             age     9.2
+            crea     8.5
+             hrt    -6.2
+             sod    -6.1
+             alb     5.7
+            resp     3.3
+          meanbp    -2.6
+DNR pre-existing     2.0
+
+------------------------------------------------------------------------------
+QUESTION 20: A prediction model needs an origin: the moment at which the
+prediction is made. Is there one here, and is it the same
+moment for everyone?
+------------------------------------------------------------------------------
+  Enrolled on hospital day 1       94.4%
+  Enrolled on days 2-7              4.7%
+  Enrolled after day 7              0.9%   (latest: day 27)
+
+  Mortality, enrolled day 1  : 60.3%
+  Mortality, enrolled later  : 76.4%  (n=55, p=0.026)
+
+  The later-enrolled are not a random sample of the cohort, and their
+  'baseline' physiology was measured after days of hospital course.
+
+  Sensitivity -- does the BUN finding survive an aligned origin?
+               cohort   n  binary_gap_pp logrank_p  fu_ratio
+ full training cohort 978           20.9     0.756      2.55
+day-1 enrolments only 923           22.1     0.598      2.56
+
+------------------------------------------------------------------------------
+QUESTION 21: Name the variables a heart failure specialist would expect and this
+dataset does not contain. What can you not claim as a result?
+------------------------------------------------------------------------------
+        expected_variable present matched
+ Ejection fraction (LVEF)      NO        
+    NYHA functional class      NO        
+          BNP / NT-proBNP      NO        
+             ECG / rhythm      NO        
+         Echocardiography      NO        
+Heart failure medications      NO        
+Revascularisation history      NO        
+           Cause of death      NO        
+
+  8 of 8 absent.
+
+------------------------------------------------------------------------------
+QUESTION 22: The cohort was assembled between 1989 and 1994. Which findings
+transfer to a patient admitted this year, and which do not?
+------------------------------------------------------------------------------
+  Therapies now standard in heart failure that post-date this cohort:
+    1996-99   beta-blockers established in HFrEF (CIBIS-II, MERIT-HF)
+    1999      spironolactone (RALES)
+    2002-05   ICD for primary prevention (MADIT-II, SCD-HeFT); CRT (COMPANION)
+    2014      sacubitril/valsartan (PARADIGM-HF)
+    2019-20   SGLT2 inhibitors (DAPA-HF, EMPEROR-Reduced)
+
+  Observed mortality in this cohort: 61.2% over follow-up.
+  Representativeness:
+    female 37.5%   white 75.1%   black 19.0%   hispanic 4.3%   other 1.0%   asian 0.6%
+
+==============================================================================
+FIGURES
+==============================================================================
+  wrote output\figures\10_dnr_survival.png
+
+ANSWERS
+==============================================================================
+
+A18. WHO THESE PATIENTS ARE
+    978 adults admitted with congestive heart failure, median age 68
+    (IQR 58-76), 37.5% female, 58.5% carrying three or
+    more comorbidities and 32.3% diabetic. 75.1% white and 19.0%
+    Black. 16.4% had a DNR order. 599 died during follow-up, a crude
+    mortality of 61.2%.
+
+    Two things a clinician reads off that paragraph immediately, neither of
+    which appears anywhere in the statistics.
+
+    First, 37.5% female is low for a heart failure population. Women are
+    roughly half of heart failure admissions and are over-represented in the
+    preserved-ejection-fraction phenotype. A cohort this male-weighted is
+    plausibly enriched for reduced ejection fraction -- which, as Q21 notes, is
+    exactly the thing this dataset cannot confirm.
+
+    Second, a mortality of 61.2% is far above what a modern heart failure
+    cohort produces, and that gap is the subject of Q22.
+
+    Write this paragraph before the modelling, not after. It is what tells a
+    reader whether the result could apply to their patients, and no amount of
+    discrimination or calibration substitutes for it.
+
+A19. DNR: THE STRONGEST PREDICTOR, AND THE ONE TO REFUSE
+    Split by level, the variable falls apart:
+
+        no DNR                56.8% mortality, median survival 591 d
+        DNR pre-existing      58.8% (n=17), log-rank vs none p=0.882
+        DNR during admission  86.7% (n=143), median survival 99 d,
+                              log-rank vs none p=<0.001
+
+    A pre-existing directive carries essentially the no-DNR mortality. An order
+    written during the admission nearly doubles it -- a 29.9 point gap
+    against no DNR, where creatinine, the strongest physiologic predictor
+    available, manages 8.5.
+
+    That asymmetry is the argument. If DNR status were a marker of how sick a
+    patient is, both levels would move together. They do not. What separates
+    them is not the patient's condition but WHEN the decision was made and by
+    whom: an advance directive is the patient's own statement of values, known
+    at admission; an order written on day four is a clinician's response to
+    deterioration, and usually a decision to limit treatment.
+
+    A model that uses the second one learns that clinicians judged this patient
+    to be dying, and then predicts death. It will discriminate beautifully and
+    it is unusable. Deployed, it would identify as high-risk precisely those
+    patients already receiving less aggressive care, and recommend less
+    aggressive care -- a self-fulfilling prophecy with an AUC attached. This is
+    a recognised hazard in prognostic modelling for critical illness, and it is
+    the objection most likely to end a presentation to clinicians badly.
+
+    So `dnr` is replaced by two derived variables. `dnr_preexisting` stays: it
+    is knowable at the origin and it reflects the patient. `dnr_in_admission`
+    joins the exclusion list beside `dnrday`, which was already excluded for the
+    same reason -- an inconsistency in this project's own rule until now.
+
+    Note what would have been lost by handling this mechanically. Dropping the
+    whole variable discards a legitimate advance directive; keeping it whole
+    imports the prophecy. The split is only defensible because the two levels
+    behave differently, which is a fact about the data rather than a preference.
+
+A20. THE PREDICTION ORIGIN
+    94.4% were enrolled on hospital day 1, but 0.9% after day 7, the latest
+    on day 27. Their mortality differs sharply: 60.3% for day-1
+    enrolments against 76.4% for the rest (p=0.026).
+
+    That breaks an assumption the project has been making silently. A prediction
+    model needs an origin -- the moment the prediction is made -- and every
+    patient's covariates must be measured at the same point relative to it.
+    Here, "baseline" physiology for a patient enrolled on day 12 was recorded
+    after twelve days of hospital course, treatment and possible deterioration.
+    They are not comparable to a patient measured on admission, and they are
+    self-selected: to be enrolled on day 12 you must survive to day 12, and
+    still be sick enough to qualify.
+
+    The honest response is to state the origin explicitly -- admission for this
+    cohort -- and show that the conclusions do not depend on the misalignment.
+    The sensitivity analysis above restricts to day-1 enrolments and the BUN
+    finding is unchanged: follow-up ratio 2.56, binary gap 22.1
+    points, log-rank p=0.598. Still an artefact, on an aligned cohort.
+
+    For the modelling stage the same discipline applies: report the primary
+    analysis on the full cohort and the day-1 restriction alongside it. If they
+    disagree, the disagreement is the finding.
+
+A21. WHAT IS NOT HERE
+    8 of 8 variables a heart failure specialist would expect
+    are absent, and the first one is disqualifying for some claims.
+
+    There is no EJECTION FRACTION. Modern heart failure is defined by it --
+    reduced (HFrEF, LVEF <= 40%), mildly reduced, and preserved (HFpEF, >= 50%)
+    -- and the three differ in pathophysiology, in prognosis, and in which drugs
+    work at all. Every guideline, every trial and every clinic conversation is
+    organised around that split. This cohort cannot be assigned to it. So no
+    result here may be stated as applying to HFrEF or to HFpEF; it applies to
+    "hospitalised heart failure" as a single undifferentiated group, which is
+    not how the condition has been thought about for twenty years.
+
+    There is no NYHA class, so functional severity is unmeasured except through
+    generic ADLs. No BNP or NT-proBNP -- unsurprising, since they entered
+    practice after this cohort closed, but they are now the standard objective
+    marker of decompensation. No echocardiography, no ECG or rhythm, so atrial
+    fibrillation is invisible. No medications, so it is impossible to know who
+    was treated and how, and heart failure prognosis is substantially a function
+    of treatment. No revascularisation history, which is precisely the exposure
+    an interventional cardiologist cares most about.
+
+    And no cause of death. Only all-cause mortality is available, so
+    cardiovascular death cannot be separated from death with heart failure
+    incidentally present -- in a cohort with this much cancer and dementia, that
+    distinction matters. It is also the one framing in which competing risks
+    would legitimately apply, and their absence is why this project does not
+    use them.
+
+    State these before someone asks. A limitation you raise yourself reads as
+    command of the material; the same limitation raised by a reviewer reads as
+    an oversight.
+
+A22. WHAT TRANSFERS AND WHAT DOES NOT
+    The cohort closed in 1994. Essentially the entire modern heart failure
+    armamentarium post-dates it: beta-blockers established in HFrEF from
+    1996-99, spironolactone in 1999, implantable defibrillators and
+    resynchronisation in the early 2000s, sacubitril/valsartan in 2014, SGLT2
+    inhibitors in 2019-20. A patient admitted today receives treatment that did
+    not exist for anyone in this dataset.
+
+    So the 61.2% mortality here does not transfer, and neither does any
+    absolute risk estimate built from it. A model calibrated on this cohort
+    would systematically over-predict death in a contemporary population, and
+    calibration -- the thing this project argues hardest for -- is exactly what
+    fails first when a model moves across eras.
+
+    What does transfer is structural, and it is worth being precise about the
+    distinction:
+
+      * that missingness can encode a data-collection protocol rather than a
+        patient state, and that a cumulative-outcome test cannot see it;
+      * that renal function is prognostic in heart failure and its effect
+        saturates rather than climbing linearly;
+      * that a treatment-limitation decision will dominate any physiologic
+        predictor if you let it into the model.
+
+    Mechanisms travel; coefficients do not. Presenting this as "a model for
+    predicting heart failure mortality" would be indefensible. Presenting it as
+    a methods study on a historical cohort, whose value is the reasoning rather
+    than the numbers, is both defensible and the more interesting claim.
+
+    The honest closing statement: this cohort supports conclusions about how to
+    analyse clinical data. It does not support a deployable risk score, and no
+    amount of additional modelling on it would change that.
+==============================================================================
+

@@ -191,6 +191,9 @@ death) is held out and never read before modelling.
 ├── 03_cohort.py               # Q12–17: data dictionary, survival with numbers at
 │                              #         risk, hazard shape, missingness patterns,
 │                              #         enrolment forensics, VIF on imputed data
+├── 04_clinical.py             # Q18–22: cohort description, DNR as a care decision,
+│                              #         prediction origin, absent HF phenotype,
+│                              #         transportability to modern practice
 ├── src/
 │   ├── support2.py            # Load → bound → split; column governance
 │   ├── stats_utils.py         # SMD, reverse-KM follow-up, FDR correction
@@ -207,7 +210,7 @@ Run:
 
 ```bash
 pip install -e ".[dev]"
-python 01_eda.py && python 02_profile.py && python 03_cohort.py
+python 01_eda.py && python 02_profile.py && python 03_cohort.py && python 04_clinical.py
 pytest
 ```
 
@@ -261,6 +264,71 @@ The script also covers the description a reviewer expects: a full data dictionar
 with units and ranges, overall survival **with numbers at risk** (978 → 15 by day
 1,825 — the element whose absence gets survival figures rejected), the hazard shape
 (early hazard 6× the late), and missingness co-occurrence patterns.
+
+---
+
+## The clinical read
+
+[`04_clinical.py`](04_clinical.py) asks what a cardiologist would ask, which the
+statistics do not.
+
+**The cohort, in clinical terms.** 978 adults admitted with congestive heart failure,
+median age 68 (IQR 58–76), **37.5% female**, 58.5% carrying three or more
+comorbidities, 32.3% diabetic, 75.1% white and 19.0% Black; 599 died, a crude
+mortality of 61.2%. That 37.5% is low for heart failure — women are roughly half of
+admissions and are over-represented in the preserved-EF phenotype — which hints the
+cohort skews toward reduced EF, the very thing the data cannot confirm.
+
+**DNR status was the strongest predictor in the dataset, and it is now excluded.**
+
+![DNR survival](output/figures/10_dnr_survival.png)
+
+| DNR status | n | mortality | median survival | log-rank vs no DNR |
+|---|---|---|---|---|
+| No DNR | 815 | 56.8% | 591 d | — |
+| **Pre-existing** (advance directive) | 17 | 58.8% | 550 d | **p=0.882** |
+| **Written during admission** | 143 | **86.7%** | 99 d | **p<0.001** |
+
+A pre-existing directive is statistically indistinguishable from no DNR at all. An
+order written *during* the admission nearly doubles mortality — a **29.9-point** gap
+where creatinine, the strongest physiologic predictor available, manages 8.5.
+
+That asymmetry is the argument. If DNR marked how sick a patient was, both levels
+would move together. They don't. What separates them is *when* the decision was made
+and *by whom*: an advance directive is the patient's own statement of values, known at
+admission; an order written on day four is a clinician's response to deterioration and
+usually a decision to limit treatment. A model using the second learns that clinicians
+judged the patient to be dying, then predicts death — discriminating beautifully while
+recommending less aggressive care for patients already receiving it. `dnr` is
+therefore split: `dnr_preexisting` stays, `dnr_in_admission` joins the exclusion list
+beside `dnrday`, which had been excluded for exactly the same reason.
+
+**The prediction origin is not aligned.** 94.4% were enrolled on hospital day 1, but
+0.9% after day 7 — the latest on **day 27** — and their mortality is 76.4% against
+60.3% (p=0.026). "Baseline" physiology for a patient enrolled on day 12 was measured
+after twelve days of hospital course. The headline finding survives restriction to
+day-1 enrolments (follow-up ratio 2.56 vs 2.55, log-rank p=0.598), which is reported
+rather than assumed.
+
+**What this dataset cannot tell you.** All eight variables a heart failure specialist
+would expect are absent: **ejection fraction**, NYHA class, BNP, ECG, echo,
+medications, revascularisation history, and cause of death. The first is
+disqualifying for some claims — modern heart failure is *defined* by HFrEF vs HFpEF,
+and this cohort cannot be assigned to either. No result here may be stated as applying
+to one phenotype. The absence of cause of death is also why competing risks are not
+used: cardiovascular death cannot be separated from death with heart failure
+incidentally present.
+
+**What transfers to a patient admitted today.** Almost none of the numbers. The cohort
+closed in 1994, before beta-blockers were established in HFrEF (1996–99),
+spironolactone (1999), ICD and CRT (early 2000s), sacubitril/valsartan (2014) and
+SGLT2 inhibitors (2019–20). A model calibrated here would systematically over-predict
+death now, and calibration is the first thing to fail across eras. What does transfer
+is structural: that missingness can encode a collection protocol rather than a patient
+state; that renal function saturates rather than climbing linearly; that a
+treatment-limitation decision will dominate any physiologic predictor if you let it
+in. **Mechanisms travel; coefficients do not.** This cohort supports conclusions about
+how to analyse clinical data. It does not support a deployable risk score.
 
 ---
 
@@ -336,6 +404,7 @@ cohort rather than hardcoding a list.
 - [x] Table 1 with SMDs, plausibility bounds, functional form, collinearity
 - [x] Data dictionary, survival with numbers at risk, hazard shape
 - [x] Enrolment-wave mechanism established; VIF recomputed on imputed data
+- [x] Clinical cohort description, DNR handling, prediction origin, transportability
 - [ ] Multiple imputation inside CV folds; complete-case and normal-fill sensitivity
 - [ ] Logistic regression with odds ratios and 95% CIs
 - [ ] Gradient boosting comparator, with a confidence interval on ΔAUC

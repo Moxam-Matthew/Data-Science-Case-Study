@@ -10,60 +10,62 @@ SUPPORT2 -- data dictionary, survival description, enrolment forensics
 QUESTION 12: Produce the data dictionary a reviewer would ask for. What does it
 catch that Table 1 does not?
 ------------------------------------------------------------------------------
-  column      role        type                       unit  n_obs  missing_pct  unique                  range
-     age predictor  continuous                      years    978          0.0     950       19.14 to 101.848
-   death   outcome      binary                               978          0.0       2                 0 to 1
-     sex predictor categorical                               978          0.0       2               2 levels
-hospdead  excluded      binary                               978          0.0       2                 0 to 1
-    slos  excluded  continuous                       days    978          0.0      59               3 to 261
-  d.time   outcome  continuous                       days    978          0.0     685              3 to 2028
- dzgroup predictor categorical                               978          0.0       1               1 levels
- dzclass predictor categorical                               978          0.0       1               1 levels
-  num.co predictor  continuous                      count    978          0.0      10                 0 to 9
-     edu predictor  continuous         years of schooling    845         13.6      25                0 to 31
-  income predictor categorical                               677         30.8       4               4 levels
-   scoma predictor  continuous SUPPORT coma score (0-100)    978          0.0       8               0 to 100
- charges  excluded  continuous                               967          1.1     955      1314.45 to 481475
-  totcst  excluded  continuous                               910          7.0     910            0 to 247741
- totmcst  excluded  continuous                               586         40.1     576            0 to 203413
- avtisst  excluded  continuous                               958          2.0     142                2 to 63
-    race predictor categorical                               976          0.2       5               5 levels
-     sps  excluded  continuous                               978          0.0     248     7.89941 to 52.6953
-     aps  excluded  continuous                               978          0.0      67                3 to 79
-  surv2m  excluded  continuous                               978          0.0     325 0.00199986 to 0.969971
-  surv6m  excluded  continuous                               978          0.0     430          0 to 0.947998
-    hday predictor  continuous                       days    978          0.0      12                1 to 27
-diabetes predictor      binary                               978          0.0       2                 0 to 1
-dementia predictor      binary                               978          0.0       2                 0 to 1
-      ca predictor categorical                               978          0.0       3               3 levels
-   prg2m  excluded  continuous                               723         26.1      28                 0 to 1
-   prg6m  excluded  continuous                               727         25.7      36                 0 to 1
-     dnr predictor categorical                               975          0.3       3               3 levels
-  dnrday  excluded  continuous                               975          0.3      59              -1 to 261
-  meanbp predictor  continuous                       mmHg    976          0.2     115              22 to 167
-    wblc predictor  continuous                    10^3/uL    947          3.2     217    0.189972 to 95.2969
-     hrt predictor  continuous                  beats/min    974          0.4     113              25 to 225
-    resp predictor  continuous                breaths/min    974          0.4      39                4 to 52
-    temp predictor  continuous                       degC    978          0.0      58     34.0938 to 40.2969
-    pafi predictor  continuous            PaO2/FiO2 ratio    621         36.5     374          41 to 648.125
-     alb predictor  continuous                       g/dL    535         45.3      37               1 to 5.5
-    bili predictor  continuous                      mg/dL    640         34.6      78        0.0999908 to 47
-    crea predictor  continuous                      mg/dL    975          0.3      68    0.299988 to 18.3984
-     sod predictor  continuous                      mEq/L    978          0.0      38             117 to 164
-      ph predictor  continuous                   pH units    632         35.4      46     7.09961 to 7.61914
- glucose predictor  continuous                      mg/dL    437         55.3     201              35 to 971
-     bun predictor  continuous                      mg/dL    457         53.3      98               2 to 171
-   urine predictor  continuous                     mL/24h    413         57.8     305              0 to 7495
-    adlp predictor  continuous            ADL count (0-7)    664         32.1       8                 0 to 7
-    adls predictor  continuous            ADL count (0-7)    623         36.3       8                 0 to 7
-   sfdm2  excluded categorical                               783         19.9       4               4 levels
-   adlsc  excluded  continuous                               978          0.0     200                 0 to 7
+          column      role        type                       unit  n_obs  missing_pct  unique                  range
+             age predictor  continuous                      years    978          0.0     950       19.14 to 101.848
+           death   outcome      binary                               978          0.0       2                 0 to 1
+             sex predictor categorical                               978          0.0       2               2 levels
+        hospdead  excluded      binary                               978          0.0       2                 0 to 1
+            slos  excluded  continuous                       days    978          0.0      59               3 to 261
+          d.time   outcome  continuous                       days    978          0.0     685              3 to 2028
+         dzgroup predictor categorical                               978          0.0       1               1 levels
+         dzclass predictor categorical                               978          0.0       1               1 levels
+          num.co predictor  continuous                      count    978          0.0      10                 0 to 9
+             edu predictor  continuous         years of schooling    845         13.6      25                0 to 31
+          income predictor categorical                               677         30.8       4               4 levels
+           scoma predictor  continuous SUPPORT coma score (0-100)    978          0.0       8               0 to 100
+         charges  excluded  continuous                               967          1.1     955      1314.45 to 481475
+          totcst  excluded  continuous                               910          7.0     910            0 to 247741
+         totmcst  excluded  continuous                               586         40.1     576            0 to 203413
+         avtisst  excluded  continuous                               958          2.0     142                2 to 63
+            race predictor categorical                               976          0.2       5               5 levels
+             sps  excluded  continuous                               978          0.0     248     7.89941 to 52.6953
+             aps  excluded  continuous                               978          0.0      67                3 to 79
+          surv2m  excluded  continuous                               978          0.0     325 0.00199986 to 0.969971
+          surv6m  excluded  continuous                               978          0.0     430          0 to 0.947998
+            hday predictor  continuous                       days    978          0.0      12                1 to 27
+        diabetes predictor      binary                               978          0.0       2                 0 to 1
+        dementia predictor      binary                               978          0.0       2                 0 to 1
+              ca predictor categorical                               978          0.0       3               3 levels
+           prg2m  excluded  continuous                               723         26.1      28                 0 to 1
+           prg6m  excluded  continuous                               727         25.7      36                 0 to 1
+             dnr  excluded categorical                               975          0.3       3               3 levels
+          dnrday  excluded  continuous                               975          0.3      59              -1 to 261
+          meanbp predictor  continuous                       mmHg    976          0.2     115              22 to 167
+            wblc predictor  continuous                    10^3/uL    947          3.2     217    0.189972 to 95.2969
+             hrt predictor  continuous                  beats/min    974          0.4     113              25 to 225
+            resp predictor  continuous                breaths/min    974          0.4      39                4 to 52
+            temp predictor  continuous                       degC    978          0.0      58     34.0938 to 40.2969
+            pafi predictor  continuous            PaO2/FiO2 ratio    621         36.5     374          41 to 648.125
+             alb predictor  continuous                       g/dL    535         45.3      37               1 to 5.5
+            bili predictor  continuous                      mg/dL    640         34.6      78        0.0999908 to 47
+            crea predictor  continuous                      mg/dL    975          0.3      68    0.299988 to 18.3984
+             sod predictor  continuous                      mEq/L    978          0.0      38             117 to 164
+              ph predictor  continuous                   pH units    632         35.4      46     7.09961 to 7.61914
+         glucose predictor  continuous                      mg/dL    437         55.3     201              35 to 971
+             bun predictor  continuous                      mg/dL    457         53.3      98               2 to 171
+           urine predictor  continuous                     mL/24h    413         57.8     305              0 to 7495
+            adlp predictor  continuous            ADL count (0-7)    664         32.1       8                 0 to 7
+            adls predictor  continuous            ADL count (0-7)    623         36.3       8                 0 to 7
+           sfdm2  excluded categorical                               783         19.9       4               4 levels
+           adlsc  excluded  continuous                               978          0.0     200                 0 to 7
+ dnr_preexisting predictor      binary                               975          0.3       2                 0 to 1
+dnr_in_admission  excluded      binary                               975          0.3       2                 0 to 1
 
   Ranges reflect the plausibility bounds applied upstream, so this table
   and 02_profile.py Q8 cannot contradict one another.
 
   constant / zero-variance columns : dzgroup, dzclass
-  near-constant predictors         : diabetes, dementia
+  near-constant predictors         : diabetes, dementia, dnr_preexisting
   no role assigned                 : none
 
   -> dzclass, dzgroup are candidate predictors that are CONSTANT
