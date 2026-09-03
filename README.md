@@ -13,13 +13,15 @@ at the bottom of the file. The reasoning is the point; the conclusion is cheap.
 **Data:** SUPPORT2, UCI Machine Learning Repository [dataset 880](https://archive.ics.uci.edu/dataset/880/support2).
 Harrell, F. (1995). https://doi.org/10.3886/ICPSR02957.v2
 
-> **Status — what is finished and what is not.** The exploratory, data-quality and
-> cohort-description stages are complete, verified by running, and their full console
-> transcripts are committed under [`output/`](output/). **No model has been fitted
-> yet.** The modelling checklist below is the remaining work. Every quantitative
-> claim on this page is interpolated from a run rather than typed, and the
-> [test suite](tests/) pins the published values so a dependency change breaks the
-> build instead of silently changing the write-up.
+> **Status — what is finished and what is not.** Exploration, data quality, cohort
+> description and modelling are complete, verified by running, and their full console
+> transcripts are committed under [`output/`](output/). **The held-out 30% has still
+> not been read.** It is reserved for a single pre-specified confirmatory comparison —
+> spending it to choose between models would turn it into a validation set and leave
+> nothing with an honest interpretation. Every quantitative claim on this page is
+> interpolated from a run rather than typed, and the [test suite](tests/) pins the
+> published values so a dependency change breaks the build instead of silently
+> changing the write-up.
 
 ---
 
@@ -196,6 +198,7 @@ death) is held out and never read before modelling.
 │                              #         transportability to modern practice
 ├── src/
 │   ├── support2.py            # Load → bound → split; column governance
+│   ├── modelling.py           # Outcome, fold-wise imputation pipeline, metrics
 │   ├── stats_utils.py         # SMD, reverse-KM follow-up, FDR correction
 │   ├── report.py              # Shared scaffolding; the Facts interpolation
 │   └── viz.py                 # Figure styling; CVD-validated palette
@@ -210,7 +213,8 @@ Run:
 
 ```bash
 pip install -e ".[dev]"
-python 01_eda.py && python 02_profile.py && python 03_cohort.py && python 04_clinical.py
+python 01_eda.py && python 02_profile.py && python 03_cohort.py
+python 04_clinical.py && python 05_modelling.py && python 06_interpretation.py
 pytest
 ```
 
@@ -332,6 +336,157 @@ how to analyse clinical data. It does not support a deployable risk score.
 
 ---
 
+## Modelling
+
+[`05_modelling.py`](05_modelling.py) (Q23–27) and [`06_interpretation.py`](06_interpretation.py)
+(Q28–30). **Outcome: 180-day all-cause mortality**, 248 events in 978 training patients.
+
+The horizon is load-bearing rather than convenient. No patient is censored before day
+180, so the binary label is complete and needs no censoring assumption — and `prg6m`
+is the attending physician's own 6-month survival estimate, making the benchmark a
+direct head-to-head rather than an approximation.
+
+**Every model is cross-validated 5×5 with imputation refitted inside each fold**, and
+the hyperparameter search sits *inside* the pipeline, so it too is refitted per fold.
+The held-out 30% is still untouched; it is spent once, on a pre-specified comparison,
+not on choosing between models.
+
+### The interpretable model won
+
+| Model | AUC | Calibration slope | Brier |
+|---|---|---|---|
+| Unpenalised logistic | 0.661 | **0.59** | 0.177 |
+| LASSO | 0.675 | 1.22 | 0.174 |
+| **Elastic net** | **0.678** | **1.19** | **0.173** |
+| XGBoost | 0.673 | **0.67** | 0.174 |
+| Decision tree (depth 3) | 0.631 | 0.90 | 0.179 |
+
+XGBoost sits **−0.005** from the elastic net with a bootstrap interval of
+[−0.036, +0.028] — indistinguishable. Only the tree is genuinely worse (−0.047, interval
+excluding zero). So the interpretable model is not a compromise here: it is the best
+performer *and* the best calibrated, which matches the finding that machine learning
+shows no consistent benefit over logistic regression on structured clinical data
+(Christodoulou et al., *J Clin Epidemiol* 2019).
+
+![Calibration](output/figures/11_calibration.png)
+
+**Calibration separates what AUC cannot.** All five models sit within 0.05 AUC. The
+unpenalised fit (slope 0.59) and XGBoost (0.67) are overconfident — predictions too
+spread out, the signature of fitting noise at **EPV ≈ 6.4**. The penalised fits
+overshoot the other way to ~1.2: under-confident, the safer error, but still
+miscalibration. XGBoost being poorly calibrated *despite* optimising log-loss is the
+instructive case — capacity is not the same as being right about probabilities.
+
+### Against the attending physician
+
+On the 727 patients with a recorded estimate, the physician achieves AUC 0.655 against
+the elastic net's 0.687 — a +0.032 difference whose interval crosses zero. The
+interesting number is elsewhere: the physician's **calibration slope is 0.45 with an
+intercept of −0.77**. Clinicians discriminate about as well as the model and are
+systematically pessimistic. That is a documented phenomenon and a better result than a
+win on AUC would have been.
+
+Two cautions stated rather than buried: the comparison runs on the subset a clinician
+chose to score, which is not random; and the physician had the bedside, the
+conversation and the trajectory, none of which is in the dataset.
+
+### Is it worth using?
+
+![Decision curve](output/figures/12_decision_curve.png)
+
+Net benefit puts the model, "treat everyone" and "treat no one" on one scale. Below
+roughly the prevalence, treating everyone is hard to beat. Above it the models
+separate, and the elastic net is above both defaults across **69.6%** of the 0.05–0.50
+threshold range — the widest of any model here. A model can win on AUC and still sit
+below "treat everyone" at every threshold a clinician would use; decision curve
+analysis is how you find that out before a reviewer does.
+
+### What the model found
+
+Elastic net kept 16 of 39 encoded terms. Refit unpenalised for interpretable effect
+sizes (per 1 SD), with intervals flagged as **optimistic** — they pretend the variable
+set was chosen in advance when it was chosen from the same data, which is the
+post-selection inference problem and has no cheap fix.
+
+| Term | OR | 95% CI | p |
+|---|---|---|---|
+| `scoma` (coma score) | 1.81 | 1.38–2.38 | <0.001 |
+| `hday` (hospital day at entry) | 1.34 | 1.08–1.67 | 0.008 |
+| **`income_missing`** | **1.27** | 1.09–1.48 | **0.003** |
+| `age` | 1.21 | 1.02–1.43 | 0.026 |
+| **`sod`** (sodium) | **0.78** | 0.66–0.91 | **0.003** |
+
+Two of these validate earlier work. `income_missing` is the missingness indicator that
+Q5–Q6 justified keeping while rejecting indicators on the lab variables — it is
+genuinely predictive, which is the payoff for having distinguished real informative
+missingness from the enrolment-wave artefact. And sodium is **protective**:
+hyponatraemia as an adverse prognostic marker in heart failure is textbook cardiology,
+which is evidence the model found physiology rather than noise.
+
+**Sensitivity to the missing-data strategy is reassuring** — MICE inside folds,
+SUPPORT normal-fill constants, and dropping the protocol-missing labs all land at AUC
+0.677–0.678. The complete-case arm is reported as NOT RUN: only 72 of 978 patients have
+every predictor, too few to cross-validate. That infeasibility is printed rather than
+dropped, because it is itself the argument against complete-case analysis.
+
+### Interpretation
+
+[`06_interpretation.py`](06_interpretation.py) covers the three techniques you asked
+about, in descending order of how much they can be trusted.
+
+**SHAP** gives per-patient explanations of the XGBoost model — which is what a
+clinician wants at a bedside, and what a global importance bar chart cannot provide.
+Two misreadings are stated explicitly because both are near-inevitable: a SHAP value
+is **not an odds ratio** (it is specific to one patient and changes between patients),
+and it is **not causal** (it attributes the *model's* use of a feature; with correlated
+predictors the split between them is close to arbitrary). Nothing in it licenses "lowering
+this value would reduce risk."
+
+**Hierarchical clustering** across four linkage criteria, and the result is a clean
+negative:
+
+![Dendrogram](output/figures/14_dendrogram.png)
+
+| Linkage | Largest cluster | Cophenetic r | Silhouette |
+|---|---|---|---|
+| single (MIN) | 99.5% | 0.89 | 0.55 |
+| complete (MAX) | 98.4% | 0.75 | 0.35 |
+| average | 99.4% | 0.90 | 0.55 |
+| **ward** | **57.8%** | 0.38 | **0.05** |
+
+Single and average linkage chain into one giant cluster plus near-singletons. Complete
+linkage is *supposed* to produce compact balanced groups and doesn't — in 39
+standardised dimensions almost every pair is far apart at similar distances, so a
+maximum-distance criterion has little to discriminate with. Only Ward divides the
+cohort at all.
+
+The diagnostics invert the naive reading. The best silhouette (0.55) and best
+cophenetic correlation (0.90) both belong to the **degenerate** partitions — a
+silhouette flatters a clustering that puts 99% of points in one group and leaves the
+rest as distant singletons. Ward's honest score is **0.05**: no separation worth the
+name. Quoting the best number across linkages without checking which partition earned
+it is how people talk themselves into subtypes that aren't there.
+
+This isn't a fanciful technique here — HFpEF phenogrouping by cluster analysis is real
+published cardiology. But those studies cluster on echocardiographic structure, and
+ejection fraction is precisely what this dataset lacks. Clustering heart failure without
+it is phenotyping a condition with its defining measurement missing. Reported as
+exploratory, with a negative conclusion.
+
+**The decision tree** as a bedside rule — three questions, five terminal groups, risks
+from 17.8% to 60.3% against a cohort rate of 25.4%:
+
+![Decision tree](output/figures/15_decision_tree.png)
+
+It is the only model here genuinely beaten on discrimination (−0.047, the one pairwise
+interval excluding zero). It is also better calibrated than XGBoost (slope 0.90) — which
+is less impressive than it sounds, since a tree emits only as many distinct
+probabilities as it has leaves, and predictions that coarse have little room to be
+overconfident. The resolution isn't to choose: report the penalised regression as the
+model and offer the tree as a simplified companion with its cost stated.
+
+---
+
 ## Analytic discipline
 
 **Cohort derivation is stated, not assumed.** 9,105 enrolled → 1,387 CHF → complete
@@ -405,12 +560,14 @@ cohort rather than hardcoding a list.
 - [x] Data dictionary, survival with numbers at risk, hazard shape
 - [x] Enrolment-wave mechanism established; VIF recomputed on imputed data
 - [x] Clinical cohort description, DNR handling, prediction origin, transportability
-- [ ] Multiple imputation inside CV folds; complete-case and normal-fill sensitivity
-- [ ] Logistic regression with odds ratios and 95% CIs
-- [ ] Gradient boosting comparator, with a confidence interval on ΔAUC
-- [ ] Calibration curves, Brier score, decision curve analysis
-- [ ] Cox and Aalen–Johansen with death as a competing risk
-- [ ] Benchmark against physician prognosis (`prg2m` / `prg6m`)
+- [x] Multiple imputation inside CV folds; complete-case and normal-fill sensitivity
+- [x] Penalised logistic regression with odds ratios and 95% CIs
+- [x] Gradient boosting comparator, with a confidence interval on ΔAUC
+- [x] Calibration curves, Brier score, decision curve analysis
+- [x] SHAP, hierarchical clustering, decision tree as a bedside rule
+- [x] Benchmark against physician prognosis (`prg6m`)
+- [ ] Cox proportional hazards with splines on creatinine
+- [ ] Single confirmatory evaluation on the held-out 30%
 
 ## Limitations
 

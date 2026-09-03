@@ -1,0 +1,278 @@
+
+==============================================================================
+SUPPORT2 -- modelling 180-day all-cause mortality
+==============================================================================
+  CHF training cohort 978   events 248 (25.4%)
+  28 predictors; missingness indicators on income, adlp
+  5x5 repeated stratified CV, imputation refitted inside every fold
+  Horizon 180 days: no patient is censored before it, so the
+  label is complete and aligns with the physician's 6-month estimate.
+  THE HELD-OUT 30% IS NOT READ BY THIS SCRIPT.
+
+------------------------------------------------------------------------------
+QUESTION 23: An unpenalised logistic regression returns a calibration slope of
+0.59 against an ideal of 1.0, while the penalised fits sit near
+1.19. What has gone wrong in each direction, and why is it nearly
+invisible to AUC?
+------------------------------------------------------------------------------
+                  model   auc  pr_auc  calibration_slope  calibration_intercept  brier
+   Unpenalised logistic 0.661   0.438              0.590                 -0.002  0.177
+         LASSO logistic 0.675   0.438              1.216                 -0.000  0.174
+   Elastic net logistic 0.678   0.442              1.190                  0.004  0.173
+                XGBoost 0.673   0.453              0.666                  0.061  0.174
+Decision tree (depth 3) 0.631   0.370              0.896                  0.004  0.179
+
+  Calibration slope 1.0 is perfect. Below 1 means predictions are too
+  extreme: the model has learned noise and states it confidently.
+  Read the auc column beside it -- it barely moves.
+
+------------------------------------------------------------------------------
+QUESTION 24: Elastic net has two hyperparameters. Selecting them by
+cross-validation and then reporting cross-validated performance
+from the same folds is a mistake with a name. What is it?
+------------------------------------------------------------------------------
+  Every model above uses nested cross-validation: the hyperparameter
+  search is a step inside the pipeline, so on each of the 5x5 outer
+  folds it is refitted using only that fold's training rows.
+
+  The alternative -- tune once on all training data, then report
+  cross-validated scores -- lets the held-out rows of each fold
+  influence the hyperparameters used to predict them.
+
+------------------------------------------------------------------------------
+QUESTION 25: XGBoost differs from the penalised regression by -0.0051 in
+AUC. Before deciding whether the deliverable should change, decide
+whether that is a difference at all.
+------------------------------------------------------------------------------
+                  model                   vs  difference  ci_low  ci_high  crosses_zero
+   Unpenalised logistic Elastic net logistic     -0.0169 -0.0347   0.0002          True
+         LASSO logistic Elastic net logistic     -0.0033 -0.0089   0.0024          True
+                XGBoost Elastic net logistic     -0.0051 -0.0361   0.0279          True
+Decision tree (depth 3) Elastic net logistic     -0.0472 -0.0784  -0.0162         False
+
+  A difference whose 95% interval crosses zero is not a difference.
+
+------------------------------------------------------------------------------
+QUESTION 26: Both models beat chance. Does either beat the attending physician,
+and does the answer depend on which patients you ask about?
+------------------------------------------------------------------------------
+  Restricted to the 727 patients with a recorded physician estimate (74.3% of the cohort).
+
+                  predictor   auc  calibration_slope  calibration_intercept  brier
+Attending physician (prg6m) 0.655              0.446                 -0.770  0.202
+       Unpenalised logistic 0.672              0.671                 -0.008  0.172
+             LASSO logistic 0.686              1.298                 -0.015  0.171
+       Elastic net logistic 0.687              1.264                 -0.008  0.170
+                    XGBoost 0.666              0.672                  0.053  0.171
+    Decision tree (depth 3) 0.625              0.837                 -0.043  0.178
+
+  Bootstrap difference in AUC against the physician:
+                  model  difference  ci_low  ci_high  crosses_zero
+   Unpenalised logistic      0.0168 -0.0452   0.0754          True
+         LASSO logistic      0.0308 -0.0283   0.0895          True
+   Elastic net logistic      0.0320 -0.0273   0.0903          True
+                XGBoost      0.0107 -0.0577   0.0731          True
+Decision tree (depth 3)     -0.0303 -0.0918   0.0322          True
+
+------------------------------------------------------------------------------
+QUESTION 27: A model with a higher AUC can be worth less at the bedside. Show it.
+------------------------------------------------------------------------------
+  Net benefit at clinically plausible thresholds:
+
+           Treat all  Treat none  Unpenalised logistic  LASSO logistic  Elastic net logistic  XGBoost  Decision tree (depth 3)
+threshold                                                                                                                     
+0.1           0.1706         0.0                0.1663          0.1706                0.1703   0.1617                   0.1706
+0.2           0.0670         0.0                0.0869          0.0941                0.0915   0.0869                   0.0769
+0.3          -0.0663         0.0                0.0353          0.0483                0.0479   0.0505                   0.0330
+0.4          -0.2440         0.0                0.0157          0.0181                0.0174   0.0324                   0.0215
+0.5          -0.4928         0.0                0.0020          0.0143                0.0143   0.0164                   0.0133
+
+  Share of thresholds 0.05-0.50 where the model beats both default
+  strategies (treat everyone / treat no one):
+    Elastic net logistic        69.6%
+    Unpenalised logistic        67.9%
+    LASSO logistic              67.9%
+    XGBoost                     64.3%
+    Decision tree (depth 3)     64.3%
+
+==============================================================================
+SENSITIVITY TO THE MISSING-DATA STRATEGY
+==============================================================================
+                                         arm   n   auc  calibration_slope  brier
+                 MICE inside folds (primary) 978 0.677              1.183  0.173
+               SUPPORT normal-fill constants 978 0.678              1.226  0.173
+ Drop protocol-missing (bun, urine, glucose) 978 0.677              1.189  0.173
+Complete cases only -- NOT RUN, only 72 rows  72   NaN                NaN    NaN
+
+  An arm reported as NOT RUN is not a silent omission: complete-case
+  analysis is infeasible here because requiring every predictor leaves
+  too few patients to cross-validate. That infeasibility is itself the
+  argument against complete-case analysis, so it is printed rather
+  than dropped.
+
+==============================================================================
+ODDS RATIOS FROM THE SELECTED MODEL
+==============================================================================
+  Elastic net kept 16 of 39 encoded terms. Refit unpenalised for interpretable effect sizes.
+  Per 1 SD for continuous terms, since predictors were standardised.
+  Intervals are OPTIMISTIC -- see the note in selected_odds_ratios().
+
+      variable  odds_ratio  ci_low  ci_high      p
+         scoma        1.81    1.38     2.38 <0.001
+          hday        1.34    1.08     1.67  0.008
+income_missing        1.27    1.09     1.48  0.003
+          adls        1.23    0.99     1.54  0.066
+           age        1.21    1.02     1.43  0.026
+          resp        1.19    1.01     1.40  0.032
+          adlp        1.13    0.91     1.40  0.265
+           edu        1.13    0.96     1.33  0.139
+          crea        1.09    0.93     1.27  0.292
+            ph        1.09    0.92     1.28  0.322
+  adlp_missing        1.06    0.90     1.25  0.480
+      dementia        1.03    0.88     1.19  0.731
+      diabetes        0.88    0.74     1.05  0.153
+        num.co        0.88    0.73     1.06  0.173
+        meanbp        0.87    0.74     1.03  0.110
+           sod        0.78    0.66     0.91  0.003
+
+==============================================================================
+FIGURES
+==============================================================================
+  wrote output\figures\11_calibration.png
+  wrote output\figures\12_decision_curve.png
+
+ANSWERS
+==============================================================================
+
+A23. WHAT AUC CANNOT SEE
+    The unpenalised model reaches AUC 0.661 with a calibration slope of
+    0.59. The elastic net reaches AUC 0.678 with a slope of
+    1.19. On discrimination alone you would call these models
+    equivalent. They are not remotely equivalent.
+
+    A slope below 1 means predicted risks are too spread out: the model pushes
+    patients toward 0 and 1 more confidently than the data supports. It has
+    fitted noise, and -- this is the part that matters clinically -- it states
+    that noise as a probability. A patient told they have a 5% risk when the
+    truth is 20% has been misinformed, even though the model ranked them
+    correctly relative to everyone else.
+
+    AUC cannot see this because AUC is rank-based. Multiply every predicted
+    probability by ten, or take the square root of all of them, and the AUC is
+    unchanged while the calibration is destroyed. Discrimination asks "is the
+    ordering right"; calibration asks "is the number right". Only the second
+    supports a conversation with a patient, and it is the one usually omitted.
+
+    The cause here is countable. 248 events against roughly 39
+    encoded parameters is about 6.4 events per variable, below the
+    conventional floor of 10. At that ratio an unpenalised fit has enough
+    freedom to chase noise, and it does.
+
+    Read the other direction too, because the penalised fits overshoot: their
+    slopes sit near 1.19, above 1 rather than below. That is the
+    opposite failure -- predictions too tightly bunched around the average,
+    because the penalty shrank the coefficients further than the data required.
+    It is the safer error of the two, since an under-confident model understates
+    how different patients are rather than inventing distinctions, but it is
+    still miscalibration and it would matter if the model were used to select a
+    high-risk group for an intervention. The remedy is not a bigger grid search;
+    it is to report the slope so a reader can see which way the model errs.
+
+    XGBoost is the interesting middle case: slope 0.67, no better
+    calibrated than the unpenalised regression despite its regularisation, and
+    it is the one model here whose calibration intercept is meaningfully off
+    zero (+0.06). Boosting optimises log-loss, which rewards
+    calibration, and it still comes out badly -- capacity is not the same thing
+    as being right about probabilities.
+
+A24. THE MISTAKE AND ITS NAME
+    Selecting hyperparameters on the same folds you then report performance
+    from is a form of information leakage; the resulting estimate is
+    optimistically biased. The fix is NESTED cross-validation, and the reason
+    this project gets it right almost by accident is structural: the
+    hyperparameter search is a step inside the Pipeline, so scikit-learn refits
+    it on each outer fold's training rows only. Every number in this script
+    comes from 5x5 repeated stratified folds built that way.
+
+    The size of the effect is easy to underrate. With a small event count and a
+    two-dimensional search -- penalty strength and l1 ratio -- there is real
+    room to select a configuration that suits the particular rows being scored.
+    That is a mistake you cannot detect afterwards from the output, which is why
+    it has to be prevented by construction rather than checked for.
+
+    A related discipline, stated because it is the one being followed: the
+    held-out 30% has not been read by this script. Choosing between models on a
+    test set converts it into a validation set, and there is then nothing left
+    that has not influenced a decision. It is spent once, on a comparison fixed
+    in advance.
+
+A25. WHEN A BETTER MODEL IS NOT A BETTER DELIVERABLE
+    XGBoost sits -0.0051 from the elastic net in AUC, with a bootstrap
+    interval of [-0.0361, +0.0279]. The interval crosses zero, so on this evidence the two models are indistinguishable.
+
+    Note which way that sign points. The flexible model did not win and then
+    get rejected on interpretability grounds -- it did not win.
+
+    That is the honest reading, and it matches the literature: a systematic
+    review of clinical prediction models found no consistent benefit of machine
+    learning over logistic regression on structured data (Christodoulou et al.,
+    J Clin Epidemiol 2019). Tabular clinical data at this scale is where
+    regression is hardest to beat -- the relationships are mostly smooth, the
+    sample is small, and boosting's capacity has little to work with.
+
+    So the deliverable should not change, and the reason is not sentimental.
+    The elastic net yields an odds ratio per predictor with an interval, which
+    is what a journal prints and what a clinician can argue with. XGBoost yields
+    a ranking. Trading an interpretable effect size for a difference this size
+    is a bad trade, and being able to say WHY it is a bad trade -- rather than
+    reporting whichever number came out higher -- is the actual skill on display.
+
+    The decision tree is included for a different reason again. It loses on
+    every metric, and it is the only model here that prints as something a
+    clinician could apply at a bedside without a computer. If the goal were
+    adoption rather than accuracy, it would be the candidate.
+
+A26. AGAINST THE PHYSICIAN
+    On the 727 patients with a recorded estimate, the attending physician
+    achieves AUC 0.655. The elastic net achieves 0.687, a
+    difference of +0.0320 with interval [-0.0273, +0.0903]. The interval crosses zero: the model neither beats nor loses to the clinician on this evidence.
+
+    Two cautions before drawing any conclusion from that.
+
+    The comparison is on the subset the physician scored, which is
+    74.3% of the cohort -- and an estimate is more likely to be
+    recorded for patients a clinician had reason to think about. That is not a
+    random subset, so this is a conditional comparison rather than a general one.
+
+    And the physician is not a competitor. They had access to the bedside, the
+    conversation and the trajectory, none of which is in the dataset; the model
+    has arithmetic. The interesting result is not who wins but whether the model
+    adds anything to what the clinician already knows -- which is an
+    incremental-value question, answered by adding the physician estimate as a
+    covariate and testing what the other predictors contribute on top. That is
+    the analysis a cardiology journal would ask for, and it belongs in the
+    modelling stage rather than here.
+
+A27. NET BENEFIT: THE QUESTION AUC DOES NOT ASK
+    A decision curve puts the model, "treat everyone" and "treat no one" on one
+    scale: net true positives per patient, after charging for false positives at
+    the exchange rate the threshold implies. Choosing to act at a 20% risk
+    threshold is a statement that one missed death is worth four unnecessary
+    interventions, and the arithmetic follows from that.
+
+    Best strategy by threshold: 10% -> LASSO logistic; 20% -> LASSO logistic; 30% -> XGBoost; 40% -> XGBoost; 50% -> XGBoost
+
+    The useful range matters more than the peak. Below roughly the prevalence
+    (25.4%), treating everyone is hard to beat, because at a low enough
+    threshold you should act on everybody and no model can improve on that.
+    Above it, the models separate from the defaults. Elastic net logistic is above both defaults across 70% of the 0.05-0.50 range, the widest of any model here.
+
+    This is why decision curve analysis belongs in the report. A model can win
+    on AUC and sit below "treat everyone" across every threshold a clinician
+    would actually use, in which case it is worth nothing regardless of its
+    discrimination. Reporting net benefit is how you find that out before a
+    reviewer does, and it is still uncommon enough that including it signals
+    familiarity with the clinical prediction literature rather than the Kaggle
+    version of the problem.
+==============================================================================
+
