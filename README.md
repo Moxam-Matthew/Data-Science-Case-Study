@@ -214,7 +214,8 @@ Run:
 ```bash
 pip install -e ".[dev]"
 python 01_eda.py && python 02_profile.py && python 03_cohort.py
-python 04_clinical.py && python 05_modelling.py && python 06_interpretation.py
+python 04_clinical.py && python 05_modelling.py
+python 06_interpretation.py && python 07_validation.py
 pytest
 ```
 
@@ -487,6 +488,104 @@ model and offer the tree as a simplified companion with its cost stated.
 
 ---
 
+## Validation and translation
+
+[`07_validation.py`](07_validation.py) (Q31–34) answers what a clinical reviewer asks
+after the modelling is done, and a leaderboard never asks at all.
+
+### Was the cohort ever big enough? No.
+
+Events-per-variable is a 1996 rule of thumb; **Riley et al. (2019)** is the modern
+replacement, and it asks whether the model will be usefully *precise* rather than
+merely estimable.
+
+| Criterion | Required n |
+|---|---|
+| 1. Shrinkage ≤ 10% | **2,465** ← binding |
+| 2. R² optimism ≤ 0.05 | 1,053 |
+| 3. Risk CI within ±0.05 | 291 |
+| **Available** | **978** |
+
+Short by ~1,490 patients. The revealing comparison is that the 10-EPV rule would have
+demanded only 1,538 — so **the rule of thumb passes a model the modern criteria fail**,
+which is why quoting EPV alone (as this project did until now) understates the problem.
+
+Two consequences. Penalisation wasn't a lucky instinct — Riley predicts the need for it
+from the sample size before any model is fitted. And the model must be presented as
+underpowered for individual risk estimation, with external validation a requirement
+rather than a nicety.
+
+### How much does the fitting process flatter itself?
+
+A holdout tells you how *one fitted model* does on unseen rows. It does not tell you how
+much the *fitting procedure* inflates its own scoring. Harrell's optimism correction —
+100 bootstraps, each refitting the whole pipeline including imputation — answers that:
+
+| Model | Apparent AUC | Optimism | Corrected | CV AUC | Shrinkage factor |
+|---|---|---|---|---|---|
+| Unpenalised logistic | 0.732 | 0.055 | 0.677 | 0.661 | **0.74** |
+| Elastic net | 0.717 | 0.044 | 0.673 | 0.678 | **1.00** |
+
+The corrected figures land close to the cross-validated ones — two different resampling
+schemes agreeing the apparent numbers are inflated by about the same amount.
+
+The shrinkage factor is the payoff. The unpenalised model needs its coefficients
+multiplied by **0.74** to stop overfitting, meaning roughly a quarter of the fitted
+effect is noise. The elastic net needs **1.00** — none. Riley's criterion 1 targets ≥0.90,
+so the bootstrap *measures* what Riley *predicted*: this cohort cannot support an
+unpenalised fit, and penalisation repairs it exactly.
+
+### Does the model add anything the clinician doesn't already have?
+
+"My model beat the doctor" is the wrong claim — nobody proposes discarding clinical
+judgement. The question a cardiology journal asks is whether the measured variables add
+information *given* the physician's estimate.
+
+| Model | AUC |
+|---|---|
+| A: physician alone | 0.655 |
+| B: model alone (out-of-fold) | 0.681 |
+| **C: physician + model** | **0.716** |
+
+Gain over the physician alone: **+0.061 [+0.025, +0.100]**, likelihood-ratio χ²=35.3 on
+1 df, p<0.001. The interval excludes zero, so the gain is real. In the combined model
+both terms keep signal (physician +0.385, model +1.006, both p<0.001) — neither drives
+the other out, which is the clinically sensible result since the physician saw the
+patient and the model saw the chart.
+
+The model's linear predictor is **out-of-fold**. Fitting and scoring the same 727
+patients gave AUC 0.731 and a gain of +0.097 — the model would have been credited with
+its own overfitting.
+
+### What the odds ratios actually mean
+
+![Effect translation](output/figures/16_effect_translation.png)
+
+An odds ratio approximates a risk ratio only when the outcome is rare — under about 10%.
+This outcome runs at **25.4%**, so the approximation fails, and always in the same
+direction.
+
+| Term | OR | RR | Risk at mean → +1 SD | Δ risk | NNS |
+|---|---|---|---|---|---|
+| `scoma` | 1.81 | **1.50** | 23.5% → 35.8% | +12.3 pp | 8 |
+| `hday` | 1.34 | 1.24 | 23.5% → 29.2% | +5.7 pp | 17 |
+| `income_missing` | 1.27 | 1.19 | 23.5% → 28.0% | +4.5 pp | 22 |
+| `sod` | 0.78 | 0.82 | 23.5% → 19.2% | −4.3 pp | 24 |
+
+A clinician hearing "OR 1.81" and thinking "81% more likely to die" has been misled by a
+factor of **1.6×** — the real relative increase is 50%. That is the analyst's job to
+prevent, not the clinician's to remember. Report the OR (what the model estimates), the
+RR at a stated baseline (what "more likely" means), and above all the **absolute risk**:
+"25 in 100 becomes 36 in 100" is a sentence a patient can weigh.
+
+**And no oversampling.** The reflex for a 25% outcome is SMOTE or class weighting; both
+distort predicted probabilities, which is the entire quantity of interest here. A model
+trained on a synthetically rebalanced cohort predicts risks for a population that does
+not exist, and its calibration is destroyed by construction. If you need a decision
+threshold, move the threshold — not the data.
+
+---
+
 ## Analytic discipline
 
 **Cohort derivation is stated, not assumed.** 9,105 enrolled → 1,387 CHF → complete
@@ -566,6 +665,8 @@ cohort rather than hardcoding a list.
 - [x] Calibration curves, Brier score, decision curve analysis
 - [x] SHAP, hierarchical clustering, decision tree as a bedside rule
 - [x] Benchmark against physician prognosis (`prg6m`)
+- [x] Riley sample size, optimism-corrected bootstrap, incremental value
+- [x] Odds ratios translated to risk ratios and absolute risk
 - [ ] Cox proportional hazards with splines on creatinine
 - [ ] Single confirmatory evaluation on the held-out 30%
 
