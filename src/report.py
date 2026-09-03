@@ -93,12 +93,29 @@ def run_and_capture(main: Callable[[], None], out_path: Path) -> None:
     The transcripts are committed. A reviewer who will not clone and run the
     project -- which is most of them -- can otherwise see no number behind any
     claim in the README, and figures alone do not carry the tables.
+
+    Order matters here. The file is written BEFORE the terminal, because the
+    terminal is the fragile one: a Windows console on a legacy codepage raises
+    UnicodeEncodeError on any character it cannot map, and doing that first once
+    destroyed a five-minute run at its final line. The expensive artefact is
+    saved first, then the display is attempted defensively.
     """
     buf = io.StringIO()
     with redirect_stdout(buf):
         main()
     text = buf.getvalue()
-    sys.stdout.write(text)
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(text, encoding="utf-8")
+
+    try:
+        sys.stdout.write(text)
+    except UnicodeEncodeError:
+        # Console cannot represent some character; degrade rather than lose the
+        # run. The committed transcript is already complete and correct.
+        enc = getattr(sys.stdout, "encoding", None) or "ascii"
+        sys.stdout.write(text.encode(enc, errors="replace").decode(enc))
+        sys.stdout.write(
+            f"\n[note: some characters were not representable in {enc} and were "
+            f"replaced for display only; {out_path.name} is unaffected]\n")
     print(f"\n[transcript written to {out_path.name}]")

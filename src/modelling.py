@@ -159,8 +159,13 @@ def build_pipeline(df: pd.DataFrame, predictors: list[str], estimator,
     """Indicators -> impute -> encode -> estimate, as one refittable unit."""
     ind = MissingnessIndicator(indicators if indicators is not None
                                else MISSINGNESS_INDICATORS)
+    # Indicators are added only for columns actually in THIS model's predictor
+    # set. Keying off df.columns instead was a latent bug: the transformer sees
+    # df[predictors] and so never creates an indicator for a column outside it,
+    # while the preprocessor was told to expect one. It stayed hidden until a
+    # model used a subset of the predictors.
     augmented = list(predictors) + [f"{c}_missing" for c in ind.columns
-                                    if c in df.columns]
+                                    if c in predictors]
     frame = ind.fit(df[predictors]).transform(df[predictors])
     return Pipeline([
         ("indicators", ind),

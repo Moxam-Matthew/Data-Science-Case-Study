@@ -453,6 +453,41 @@ def analysis_frames(test_frac: float = 0.30, seed: int = 20260901) -> Cohort:
                   n_voided=n_voided, n_test=int((split == "test").sum()))
 
 
+class ConfirmatoryCohort(NamedTuple):
+    """Train and test together. Returned only by confirmatory_frames()."""
+    full_train: pd.DataFrame
+    full_test: pd.DataFrame
+    chf_train: pd.DataFrame
+    chf_test: pd.DataFrame
+    n_voided: int
+
+
+def confirmatory_frames(test_frac: float = 0.30, seed: int = 20260901
+                        ) -> ConfirmatoryCohort:
+    """
+    Return BOTH partitions, including the held-out test set.
+
+    This is deliberately a separate function from analysis_frames(). Every
+    exploratory and model-development script in this project calls the latter,
+    which constructs the test partition and then discards it, so a script cannot
+    read held-out patients by accident -- it has to import a differently named
+    function whose docstring says what it is doing.
+
+    The test partition is spent ONCE, on a comparison fixed in advance, after
+    all model development is complete. Using it to choose between models would
+    convert it into a validation set and leave nothing in the project with an
+    unbiased interpretation. 10_confirmatory.py is the only caller.
+    """
+    raw = load_support2()
+    cleaned, n_voided = apply_plausibility_bounds(raw)
+    cleaned = derive_dnr_features(cleaned)
+    split = make_split(cleaned, test_frac=test_frac, seed=seed)
+    tr, te = cleaned[split == "train"].copy(), cleaned[split == "test"].copy()
+    return ConfirmatoryCohort(full_train=tr, full_test=te,
+                              chf_train=chf_cohort(tr), chf_test=chf_cohort(te),
+                              n_voided=n_voided)
+
+
 def audit_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Classify every column as outcome, excluded, or candidate predictor."""
     rows = []

@@ -13,15 +13,21 @@ at the bottom of the file. The reasoning is the point; the conclusion is cheap.
 **Data:** SUPPORT2, UCI Machine Learning Repository [dataset 880](https://archive.ics.uci.edu/dataset/880/support2).
 Harrell, F. (1995). https://doi.org/10.3886/ICPSR02957.v2
 
-> **Status — what is finished and what is not.** Exploration, data quality, cohort
-> description and modelling are complete, verified by running, and their full console
-> transcripts are committed under [`output/`](output/). **The held-out 30% has still
-> not been read.** It is reserved for a single pre-specified confirmatory comparison —
-> spending it to choose between models would turn it into a validation set and leave
-> nothing with an honest interpretation. Every quantitative claim on this page is
-> interpolated from a run rather than typed, and the [test suite](tests/) pins the
-> published values so a dependency change breaks the build instead of silently
-> changing the write-up.
+> **Status — complete.** Exploration, data quality, cohort description, modelling,
+> validation and the confirmatory analysis are all finished and verified by running;
+> full console transcripts are committed under [`output/`](output/). **The held-out
+> 30% was read once, in [`10_confirmatory.py`](10_confirmatory.py), after every
+> modelling decision was settled** — and the result reversed one of this project's own
+> earlier claims, which is reported rather than quietly dropped. Every quantitative
+> claim on this page is interpolated from a run rather than typed, and the
+> [test suite](tests/) pins the published values so a dependency change breaks the
+> build instead of silently changing the write-up.
+
+
+> ## → [**EXECUTIVE SUMMARY**](EXECUTIVE_SUMMARY.md) ←
+> **Start here.** One page: the held-out result, the two claims that did not survive
+> validation, and what may and may not be concluded. The rest of this README is the
+> methodology behind it.
 
 ---
 
@@ -667,8 +673,10 @@ cohort rather than hardcoding a list.
 - [x] Benchmark against physician prognosis (`prg6m`)
 - [x] Riley sample size, optimism-corrected bootstrap, incremental value
 - [x] Odds ratios translated to risk ratios and absolute risk
-- [ ] Cox proportional hazards with splines on creatinine
-- [ ] Single confirmatory evaluation on the held-out 30%
+- [x] Threshold metrics: recall, precision, F1, accuracy, MCC, ROC and PR curves
+- [x] Parsimonious 7-variable clinical model
+- [x] Cox proportional hazards with splines on creatinine, PH assumption tested
+- [x] **Confirmatory evaluation on the held-out 30% — spent once**
 
 ## Limitations
 

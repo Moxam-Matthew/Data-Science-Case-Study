@@ -1,0 +1,216 @@
+
+==============================================================================
+SUPPORT2 -- CONFIRMATORY ANALYSIS
+==============================================================================
+  Reading the held-out partition for the first and only time.
+  Everything below was fixed before this script was first run;
+  see the module docstring for the pre-specification.
+
+  training 978 patients, 248 events (25.4%)
+  held out 409 patients, 126 events (30.8%)
+  28 candidate predictors
+
+------------------------------------------------------------------------------
+QUESTION 43: The model was chosen on cross-validated training performance. How
+much of that performance survives contact with data the project
+has never seen?
+------------------------------------------------------------------------------
+                     model  cv_auc  test_auc  auc_change  cv_brier  test_brier  cv_slope  test_slope
+     Elastic net (primary)   0.678     0.655      -0.023     0.173       0.202      1.19       0.706
+                   XGBoost   0.673     0.647      -0.026     0.174       0.209      0.67       0.481
+Clinical logistic (7 vars)   0.662     0.628      -0.034     0.173       0.206      0.90       0.419
+
+  cv_* columns were fixed in this file before the test set was read.
+
+==============================================================================
+PRIMARY COMPARISON, PRE-SPECIFIED
+==============================================================================
+  XGBoost minus elastic net, on the held-out partition:
+    difference   -0.0072
+    95% interval [-0.0554, +0.0427]
+    crosses zero True
+
+  Pre-specified expectation: the interval includes zero.
+  Outcome: CONFIRMED
+
+------------------------------------------------------------------------------
+QUESTION 44: Calibration is the first thing to fail when a model meets new
+data. Did it?
+------------------------------------------------------------------------------
+                     model  calibration_slope  calibration_intercept  brier  mean_predicted  observed
+     Elastic net (primary)              0.706                  0.262  0.202           0.260     0.308
+                   XGBoost              0.481                  0.340  0.209           0.253     0.308
+Clinical logistic (7 vars)              0.419                  0.259  0.206           0.261     0.308
+
+  Slope 1 and intercept 0 is perfect. `mean_predicted` against
+  `observed` is calibration-in-the-large: whether the model gets the
+  average risk right, which is what breaks first across populations.
+
+==============================================================================
+CLINICAL UTILITY ON THE HELD-OUT PARTITION
+==============================================================================
+  Share of thresholds 0.05-0.50 where the model beats both defaults:
+    Elastic net (primary)         62.5%
+    XGBoost                       48.2%
+    Clinical logistic (7 vars)    48.2%
+
+==============================================================================
+AGAINST THE ATTENDING PHYSICIAN, HELD-OUT PARTITION
+==============================================================================
+  324 of 409 test patients have an estimate (79.2%)
+    physician    AUC 0.711
+    elastic net  AUC 0.633
+    difference   -0.0785 [-0.1542, +0.0034]
+
+==============================================================================
+A LIMITATION THE CONFIRMATORY RUN EXPOSED
+==============================================================================
+  The split was stratified on the wrong outcome.
+
+                            train     test
+  stratified on:                          
+    all-cause death         61.2%    59.9%   balanced by design
+  modelled outcome:                       
+    180-day mortality       25.4%    30.8%   NOT stratified
+
+  The modelled outcome differs by +5.4 percentage points.
+  A model calibrated to a 25% event rate, applied to a 31% one, will
+  under-predict on average -- which is exactly what Q44 shows.
+
+==============================================================================
+POST HOC: DOES THE MODEL STILL ADD ANYTHING? (not pre-specified)
+==============================================================================
+    physician alone        AUC 0.711
+    model alone            AUC 0.633
+    physician + model      AUC 0.728
+
+  Likelihood-ratio test for adding the model to the physician:
+    chi2 = 5.0 on 1 df, p = 0.026
+    model coefficient +0.410 (p = 0.030)
+
+  This analysis was run AFTER the primary result and is reported as
+  post hoc. It is not evidence of the same standing as Q43.
+
+==============================================================================
+FIGURES
+==============================================================================
+  wrote output\figures\20_confirmatory.png
+
+ANSWERS
+==============================================================================
+
+A43. WHAT SURVIVED
+    The primary model reaches AUC 0.655 on the held-out partition against
+    a cross-validated training estimate of 0.678 -- a change of
+    -0.023. Performance held. A change of -0.023 on 409 patients is well within what sampling alone produces at this size.
+
+    That is the number the whole project was arranged to be able to report
+    honestly. It is credible precisely because of what did NOT happen: the test
+    partition was not used to choose the model, the threshold, the predictor
+    set, the imputation strategy or the horizon. All of those were settled on
+    training data across scripts 01 to 09, and this script reads 409
+    patients once.
+
+    The pre-specified primary comparison also held. XGBoost minus elastic net on
+    held-out data is -0.0072 with interval [-0.0554, +0.0427]; the interval
+    includes zero, as 05_modelling.py predicted from training
+    cross-validation. Two independent partitions agreeing that the flexible
+    model and the penalised regression are indistinguishable is a stronger
+    statement than either one alone.
+
+    The clinical seven-variable model reaches 0.628. It is not meaningfully behind the full model on held-out data either, which is the result that matters for whether anyone would use it.
+
+A44. DID CALIBRATION SURVIVE?
+    Calibration slope 0.71 against the cross-validated 1.19, and
+    calibration-in-the-large of 26.0% predicted against 30.8%
+    observed. The slope fell below 1, meaning predictions are more extreme than the held-out outcomes support.
+
+    Calibration is reported here because it is the first thing to fail when a
+    model meets new data, and because it is the property that makes an
+    individual prediction mean anything. A model whose ranking transfers but
+    whose probabilities do not is still useless for telling a patient their
+    risk -- and AUC alone would not reveal it. That is precisely what happened:
+    AUC fell -0.023 and looked fine; calibration fell from 1.19 to
+    0.71 and did not.
+
+    The cause is identifiable, and it is a defect in this project's own design
+    rather than a property of the model. make_split() stratifies on ALL-CAUSE
+    DEATH OVER FULL FOLLOW-UP across the whole enrolled cohort, and does so
+    perfectly: 68.1% in both partitions. But the outcome finally modelled is
+    180-day mortality within the CHF subgroup, which the stratification never
+    balanced -- 25.4% in training against 30.8% in test, a gap of
+    +5.4 points.
+
+    A model calibrated to a 25% event rate and applied to a 31% one will
+    under-predict, and it does: 26.0% predicted against 30.8%
+    observed. That is not the model failing to generalise, it is the model
+    correctly reporting the risk of the population it was trained on, evaluated
+    on a different one.
+
+    The fix is a one-line change -- stratify on the outcome actually being
+    modelled -- and it is deliberately NOT being made now. Re-splitting after
+    seeing the test result and re-running would be choosing a partition on the
+    basis of its answer, which is the one thing a held-out set cannot survive.
+    It is recorded as a limitation and as the first correction for any future
+    version.
+
+    Note that this is INTERNAL validation: the held-out patients come from the
+    same five hospitals, the same years and the same protocol as the training
+    patients. It answers "does this generalise to more patients like these",
+    which is a genuine question and a much easier one than "does this generalise
+    to a different hospital in a different decade". TRIPOD calls the second
+    external validation, and this project has not done it. 04_clinical.py A22
+    gives the reasons to expect it would go worse.
+
+A45. WHAT MAY BE CLAIMED
+    Claimable, on this evidence:
+
+      * A penalised logistic regression using 28 routinely available
+        admission variables predicts 180-day mortality in hospitalised heart
+        failure with AUC 0.655 on held-out patients, with calibration
+        slope 0.71.
+      * A seven-variable model a clinician could compute by hand performs
+        comparably (0.628), which is the practically important
+        finding.
+      * Gradient boosting does not outperform it, on two independent partitions.
+        This is the most robust finding in the project.
+      * Apparent informative missingness in three laboratory variables is an
+        artefact of enrolment-wave protocol change, demonstrated rather than
+        asserted (03_cohort.py Q16).
+
+    A CLAIM THAT DID NOT SURVIVE, stated plainly because it was made earlier in
+    this project and is now contradicted. 07_validation.py Q33 found on training
+    data that the model outperformed the attending physician (AUC 0.687 against
+    0.655) and added information to their estimate. On held-out patients the
+    direction reverses: the physician reaches 0.711 and the model
+    0.633, a difference of -0.0785 with interval [-0.1542, +0.0034].
+
+    The interval only just includes zero, so this is not a clean defeat -- but it is certainly not the win the training data suggested. A post-hoc check (above) asks whether the model still adds information given the physician: likelihood-ratio p = 0.026. That analysis was run after seeing this result and carries correspondingly less weight.
+
+    The reversal is worth more than the original claim was. It is what a
+    held-out partition is for, and a project that reported only the training
+    comparison would have published a conclusion its own data contradicts.
+
+    NOT claimable, and each of these would be challenged:
+
+      * That this is a deployable risk score. Riley's criteria say the cohort is
+        roughly 2.5x too small for the model fitted (07_validation.py
+        Q31), and the coefficients carry more uncertainty than their intervals
+        suggest.
+      * That the absolute risks transfer to a contemporary population. The
+        cohort closed in 1994, before beta-blockers, ARNIs, ICDs and SGLT2
+        inhibitors became standard in heart failure. Discrimination may travel;
+        calibration will not.
+      * That any result applies to HFrEF or HFpEF specifically. The dataset has
+        no ejection fraction, so the cohort cannot be assigned to either
+        phenotype (04_clinical.py Q21).
+      * That the model has been externally validated. It has not.
+      * That the seven-variable specification was pre-registered. It was chosen
+        after seeing which variables the penalised model selected, and
+        09_parsimony_and_survival.py A39 says so.
+
+    The honest one-sentence summary: this is a methods study on a historical
+    cohort that produces a defensible internal estimate and a clear negative
+    result about model complexity, and it is not a product.
+==============================================================================
+

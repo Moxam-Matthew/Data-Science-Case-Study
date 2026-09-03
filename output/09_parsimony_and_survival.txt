@@ -1,0 +1,237 @@
+
+==============================================================================
+SUPPORT2 -- parsimony and survival
+==============================================================================
+  CHF training cohort 978, 248 events at 180 days (25.4%)
+  Full follow-up: 599 deaths over 2,028 days
+  Training partition only; the held-out 30% remains unread.
+
+------------------------------------------------------------------------------
+QUESTION 39: Real clinical risk scores use five to eight variables, not
+twenty-eight penalised down to sixteen. Build the model a
+cardiologist would recognise, and say what it costs.
+------------------------------------------------------------------------------
+                     model  n_predictors   auc  pr_auc  calibration_slope  calibration_intercept  brier  mean_predicted  observed
+Full elastic net (28 vars)            28 0.678   0.442               1.19                  0.004  0.173        0.252901  0.253579
+Clinical logistic (7 vars)             7 0.662   0.449               0.90                 -0.003  0.173        0.254146  0.253579
+ Clinical + spline on crea            10 0.656   0.450               0.86                 -0.007  0.173        0.254769  0.253579
+
+  Variables in the clinical model: age, meanbp, sod, crea, scoma, num.co, adls
+  All knowable at admission; all named by the heart failure
+  literature rather than selected from this dataset.
+
+==============================================================================
+CLINICAL MODEL: ODDS RATIOS
+==============================================================================
+variable                       unit  odds_ratio  ci_low  ci_high      p
+   scoma SUPPORT coma score (0-100)        1.95    1.50     2.54 <0.001
+    adls            ADL count (0-7)        1.38    1.19     1.59 <0.001
+     age                      years        1.23    1.05     1.45  0.009
+    crea                      mg/dL        1.07    0.93     1.24  0.344
+  meanbp                       mmHg        0.84    0.71     0.99  0.032
+  num.co                      count        0.81    0.69     0.96  0.014
+     sod                      mEq/L        0.76    0.64     0.89 <0.001
+
+------------------------------------------------------------------------------
+QUESTION 40: 01_eda.py A1 argued that a binary flag discards the timing
+information that matters clinically -- and then the whole
+modelling stage used a binary outcome. Was that a contradiction?
+------------------------------------------------------------------------------
+  Cox proportional hazards on full follow-up: n=978, 599 deaths
+  Harrell's C = 0.628
+
+           hazard_ratio  ci_low  ci_high       p
+covariate                                       
+age               1.012   1.007    1.017  <0.001
+meanbp            0.996   0.993    1.000   0.028
+sod               0.977   0.963    0.992   0.002
+scoma             1.045   1.034    1.057  <0.001
+num.co            1.040   0.983    1.101   0.173
+adls              1.098   1.053    1.145  <0.001
+crea_s1           0.771   0.494    1.203   0.252
+crea_s2           1.151   0.758    1.747   0.511
+crea_s3           1.053   0.686    1.617   0.813
+crea_s4           0.468   0.038    5.733   0.552
+
+  Hazard ratios, not odds ratios: the quantity is a rate over time,
+  and it uses the full observation window rather than a 180-day flag.
+
+------------------------------------------------------------------------------
+QUESTION 41: Cox assumes hazards are proportional. 03_cohort.py Q14 showed the
+baseline hazard falls steeply. Test the assumption rather than
+asserting it, and say what to do where it fails.
+------------------------------------------------------------------------------
+  index  test_statistic      p  -log2(p)
+   adls          1.2046 0.2724    1.8762
+    age          0.0357 0.8501    0.2343
+crea_s1          0.0623 0.8029    0.3167
+crea_s2          0.2682 0.6045    0.7262
+crea_s3          0.1354 0.7129    0.4881
+crea_s4          0.0400 0.8415    0.2490
+ meanbp          0.7024 0.4020    1.3149
+ num.co         18.0265 0.0000   15.4863
+  scoma         17.9966 0.0000   15.4636
+    sod          4.6332 0.0314    4.9949
+
+  Covariates violating proportional hazards at p<0.05: num.co, scoma, sod
+
+------------------------------------------------------------------------------
+QUESTION 42: Harrell's C for the Cox model and AUC for the logistic model are
+both concordance measures. Are they measuring the same thing,
+and which logistic model is the fair comparison?
+------------------------------------------------------------------------------
+  Cox, full follow-up, 7 clinical vars
+      Harrell's C = 0.628
+  Clinical logistic, 180-day flag, same 7 vars
+      AUC         = 0.662   <- the like-for-like comparison
+      difference    -0.034
+
+  Full elastic net, 180-day flag, all predictors
+      AUC         = 0.678   <- NOT comparable: more variables
+      difference    -0.049
+
+  Comparing the 7-variable Cox against the 28-variable logistic would
+  attribute a variable-count difference to the choice of model family.
+
+==============================================================================
+FIGURES
+==============================================================================
+  wrote output\figures\19_spline_risk_curve.png
+
+ANSWERS
+==============================================================================
+
+A39. WHAT PARSIMONY COSTS
+    The clinical model uses 7 variables against the full model's
+    28, and reaches AUC 0.662 against 0.678 -- a difference of
+    -0.015. Adding a spline on crea moves it to 0.656, which
+    is not an improvement; the spline earned its place in a Cox model on full
+    follow-up, not here.
+
+    But AUC is the metric on which the clinical model looks worst, and reporting
+    only that would undersell it. Its PR-AUC is 0.449 against
+    0.442 -- higher, on the metric that matters more at 25% prevalence.
+    Its calibration slope is 0.90 against 1.19: the full model
+    over-shrinks, the clinical model is nearer 1, and it is the better
+    calibrated of the two. Brier scores are identical to three decimals.
+
+    So "what parsimony costs" is close to nothing here: -0.015 of AUC, in
+    exchange for better calibration and a model with seven variables instead of
+    twenty-eight. That is a much stronger result than a small loss, and it
+    matches how clinical risk scores are actually built. GRACE, TIMI and
+    CHA2DS2-VASc all use single-digit variable counts, not because their authors
+    lacked data but because a score nobody can compute does not get computed.
+
+    An honesty note that belongs in the open rather than in a footnote. These
+    seven variables were chosen from the heart failure literature -- age,
+    haemodynamics, sodium, renal function, neurological status, comorbidity
+    burden, functional dependence -- and they overlap heavily with what the
+    elastic net selected in 05_modelling.py. Having already seen that selection,
+    I cannot claim this specification was independent of the data. A genuinely
+    pre-specified model would have been written down before any modelling ran.
+    The overlap is reassuring about the clinical plausibility of the penalised
+    model; it is not independent evidence, and it should not be presented as
+    validation of either.
+
+    The trade to state plainly: the full model is better for prediction, the
+    clinical model is better for adoption, and they are close enough here that
+    the choice is a deployment question rather than a statistical one.
+
+A40. WAS THE BINARY OUTCOME A CONTRADICTION?
+    Partly, and the honest answer is more interesting than a defence.
+
+    A1 objected to the SATURATED end-of-study flag -- death at any point over
+    one to five years, firing for 61.2% of the cohort, with
+    follow-up unbalanced in a way Q5 showed manufactures signal. The 180-day
+    outcome the modelling actually used is a different object: no patient is
+    censored before it, so nothing is discarded by collapsing to it, and it
+    aligns with the physician's own 6-month estimate. That was a defensible
+    choice and the project made it for stated reasons.
+
+    But A1 also argued that timing is what a cardiologist asks about, and that
+    argument was left unfinished. A binary model at 180 days treats a death on
+    day 20 and a death on day 179 as identical events. They are not identical to
+    a patient, a family, or a discharge decision.
+
+    So the Cox model above is not a redundancy check, it is the missing half.
+    Harrell's C of 0.628 on the full follow-up says the ordering of survival
+    times is recoverable at about the same strength as the 180-day ranking,
+    which is a genuinely useful thing to know: the signal is not concentrated
+    in one window.
+
+    What the Cox model buys that the logistic does not: hazard ratios rather
+    than odds ratios, a risk curve over time rather than at one horizon, and the
+    ability to answer "when" rather than only "whether". What it costs: the
+    proportional hazards assumption, which Q41 tests rather than assumes.
+
+A41. TESTING PROPORTIONALITY
+    Across 10 covariates, 3 violate proportional hazards at p<0.05: num.co, scoma, sod.
+
+    Two things worth separating, because they are routinely confused. A falling
+    BASELINE hazard -- which 03_cohort.py Q14 documented, early hazard about six
+    times the late -- is not a violation. Cox never models the baseline; it
+    factors out. Proportionality is a claim about the RATIO between patients,
+    which is a different thing entirely.
+
+    What a violation would mean is that a covariate's effect changes over time:
+    a variable that matters intensely in the first month and little afterwards
+    still yields one plausible-looking hazard ratio, and that single number is
+    an average over a period during which the truth changed.
+
+    The remedies, in ascending order of effort. Stratify on the offending
+    variable, which allows it its own baseline hazard and stops pretending its
+    effect is constant. Add a time-varying coefficient, an interaction between
+    the covariate and a function of time. Or, if the violation is severe, accept
+    that the proportional hazards framework is the wrong one and report a
+    fixed-horizon model instead -- which is, in effect, what the rest of this
+    project did.
+
+    There is corroborating evidence in the coefficients, and it is the kind
+    worth noticing rather than smoothing over. Compare the two models on
+    `num.co`: the logistic gives an odds ratio of 0.81 -- more
+    comorbidities associated with LOWER 180-day mortality, which is clinically
+    backwards -- while the Cox gives a hazard ratio of 1.04 and does not
+    reach significance. A variable whose sign disagrees between two models
+    fitted on the same patients is unstable, and `num.co` is also one of the
+    covariates failing the proportionality test. Those two facts are the same
+    fact: an effect that changes over the follow-up cannot be summarised by one
+    number, and the summary you get depends on which window you look through.
+
+    The right response is not to pick whichever sign is more comfortable. It is
+    to say that this variable is not reliably estimated here, stratify or
+    interact it with time, and refuse to interpret its coefficient clinically
+    until it behaves.
+
+    The point is that this was tested. A Cox model reported without a
+    proportionality check is a model with an unexamined assumption at its centre,
+    and Schoenfeld residuals cost one line.
+
+A42. IS HARRELL'S C THE SAME THING AS AUC?
+    Nearly, but the first job is picking the right comparison. C = 0.628 for
+    the Cox model against AUC = 0.662 for the logistic model on the
+    SAME 7 variables -- a difference of -0.034. Against the full
+    28-variable elastic net (0.678) the gap is -0.049, and
+    quoting that one would blame the model family for a variable count.
+
+    Both are concordance measures: the probability that, for a randomly chosen
+    pair of patients, the model ranks them in the correct order. For a binary
+    outcome with no censoring, Harrell's C and the AUC are the same quantity --
+    the C-index is a generalisation of AUC, not a different idea.
+
+    What generalises is the definition of "correct order". AUC pairs a patient
+    who had the event with one who did not. Harrell's C pairs patients by
+    survival TIME, and handles the pairs where censoring makes the comparison
+    undecidable by discarding them. So C is answering a harder question on more
+    information, and the near-identical value tells you the model's ranking is
+    stable whether you ask about 180-day status or about ordering over the whole
+    follow-up.
+
+    One caution that applies to both and is usually omitted: concordance shares
+    every weakness this project has already documented for AUC. It is
+    rank-based, so it cannot see calibration; it is insensitive to added
+    predictors; and it says nothing about whether the model is clinically
+    useful, which is what decision curve analysis in 05_modelling.py is for.
+    Reporting C alone for a survival model is the same mistake as reporting AUC
+    alone for a binary one.
+==============================================================================
+

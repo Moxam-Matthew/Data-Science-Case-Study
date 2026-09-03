@@ -1,0 +1,256 @@
+
+==============================================================================
+SUPPORT2 -- operating points, 180-day all-cause mortality
+==============================================================================
+  CHF training cohort 978, 248 events (25.4%)
+  Out-of-fold predictions, same CV design as 05_modelling.py.
+  Training partition only; the held-out 30% remains unread.
+
+------------------------------------------------------------------------------
+QUESTION 35: Report accuracy at the default 0.5 cut-off. Then compare it
+with a model that predicts nobody dies. What does the comparison
+tell you about accuracy as a metric here?
+------------------------------------------------------------------------------
+  At threshold 0.5:
+    accuracy           76.1%
+    sensitivity         9.3%   (23 of 248 deaths identified)
+    specificity        98.8%
+    precision (PPV)    71.9%
+    F1                0.164
+    patients flagged     32 of 978
+
+  A model that predicts NOBODY dies:
+    accuracy           74.6%   <- the no-information rate
+    sensitivity        0.0%   (0 of 248 deaths identified)
+
+  The model's accuracy advantage over predicting nothing: +1.4 points.
+
+------------------------------------------------------------------------------
+QUESTION 36: Sensitivity, specificity, PPV and NPV all move as the threshold
+moves, in different directions. Which one should the threshold
+be chosen for?
+------------------------------------------------------------------------------
+ threshold  flagged  tp  fp  fn  tn  sensitivity  specificity   ppv   npv    f1  accuracy   mcc
+      0.10      971 247 724   1   6        0.996        0.008 0.254 0.857 0.405     0.259 0.022
+      0.15      880 238 642  10  88        0.960        0.121 0.270 0.898 0.422     0.333 0.116
+      0.20      632 198 434  50 296        0.798        0.405 0.313 0.855 0.450     0.505 0.185
+      0.25      400 152 248  96 482        0.613        0.660 0.380 0.834 0.469     0.648 0.242
+      0.30      234 103 131 145 599        0.415        0.821 0.440 0.805 0.427     0.718 0.241
+      0.40       72  39  33 209 697        0.157        0.955 0.542 0.769 0.244     0.753 0.187
+      0.50       32  23   9 225 721        0.093        0.988 0.719 0.762 0.164     0.761 0.197
+      0.60       18  13   5 235 725        0.052        0.993 0.722 0.755 0.098     0.755 0.148
+
+  Operating points chosen by different rules:
+    max F1              threshold 0.24  sens 0.65  spec 0.63  PPV 0.38
+    max Youden J        threshold 0.24  sens 0.65  spec 0.63  PPV 0.38
+    max MCC             threshold 0.26  sens 0.58  spec 0.70  PPV 0.40
+    >=90% sensitivity   threshold 0.16  sens 0.94  spec 0.18  NPV 0.91
+
+------------------------------------------------------------------------------
+QUESTION 37: F1 is maximised at one threshold and net benefit at another. Both
+are principled. Which is the clinical answer, and why?
+------------------------------------------------------------------------------
+  F1 peaks at threshold 0.24 (F1 = 0.476)
+  Net benefit over the best default peaks at threshold 0.26 (gain = 0.0686)
+
+  threshold      F1  net benefit  gain vs default
+       0.15   0.422       0.1275           0.0057
+       0.20   0.450       0.0915           0.0245
+       0.25   0.469       0.0709           0.0661
+       0.30   0.427       0.0479           0.0479
+       0.40   0.244       0.0174           0.0174
+       0.50   0.164       0.0143           0.0143
+
+  F1 does not know what a false negative costs. Net benefit does --
+  the threshold IS the statement of cost.
+
+------------------------------------------------------------------------------
+QUESTION 38: Sensitivity and specificity are properties of the model. PPV and NPV
+are not. What breaks when this model is deployed somewhere with a
+different case mix?
+------------------------------------------------------------------------------
+  Holding the model and the threshold fixed at 0.26:
+    sensitivity 0.581 and specificity 0.700 do not change.
+
+   prevalence     PPV     NPV
+         5.0%   0.092   0.969
+        10.0%   0.177   0.938
+        25.4%   0.397   0.831  <- this cohort
+        40.0%   0.563   0.715
+        60.0%   0.744   0.527
+
+  PPV moves from 0.09 to 0.74 across that range while the model is unchanged.
+
+==============================================================================
+CLASSIFICATION REPORT, EVERY MODEL, AT EACH STATED THRESHOLD
+==============================================================================
+  Out-of-fold predictions. Prevalence 25.4%, no-information rate 74.6%.
+  auc and pr_auc are threshold-free; every column after them moves
+  when the threshold does.
+
+  -- threshold 0.25 (the prevalence, a defensible reference point) ----------------------------
+               model   auc  pr_auc  accuracy  sensitivity  specificity  precision   npv    f1  balanced_acc   mcc  tp  fp  fn  tn
+Unpenalised logistic 0.661   0.438     0.645        0.552        0.677      0.367 0.817 0.441         0.615 0.205 137 236 111 494
+               LASSO 0.675   0.438     0.647        0.597        0.664      0.377 0.829 0.462         0.631 0.232 148 245 100 485
+         Elastic net 0.678   0.442     0.648        0.613        0.660      0.380 0.834 0.469         0.637 0.242 152 248  96 482
+             XGBoost 0.673   0.453     0.640        0.573        0.663      0.366 0.820 0.447         0.618 0.210 142 246 106 484
+  Decision tree (d3) 0.631   0.370     0.625        0.520        0.660      0.342 0.802 0.413         0.590 0.161 129 248 119 482
+    best accuracy: Elastic net at 0.648 against a no-information rate of 0.746
+
+  -- threshold 0.26 (chosen from the decision curve) ----------------------------
+               model   auc  pr_auc  accuracy  sensitivity  specificity  precision   npv    f1  balanced_acc   mcc  tp  fp  fn  tn
+Unpenalised logistic 0.661   0.438     0.648        0.524        0.690      0.365 0.810 0.430         0.607 0.194 130 226 118 504
+               LASSO 0.675   0.438     0.671        0.560        0.708      0.395 0.826 0.463         0.634 0.244 139 213 109 517
+         Elastic net 0.678   0.442     0.670        0.581        0.700      0.397 0.831 0.471         0.640 0.253 144 219 104 511
+             XGBoost 0.673   0.453     0.651        0.552        0.685      0.373 0.818 0.446         0.619 0.213 137 230 111 500
+  Decision tree (d3) 0.631   0.370     0.640        0.488        0.692      0.350 0.799 0.407         0.590 0.163 121 225 127 505
+    best accuracy: LASSO at 0.671 against a no-information rate of 0.746
+
+  -- threshold 0.50 (the conventional default) ----------------------------
+               model   auc  pr_auc  accuracy  sensitivity  specificity  precision   npv    f1  balanced_acc   mcc  tp  fp  fn  tn
+Unpenalised logistic 0.661   0.438     0.748        0.177        0.942      0.512 0.771 0.263         0.560 0.184  44  42 204 688
+               LASSO 0.675   0.438     0.761        0.089        0.989      0.733 0.762 0.158         0.539 0.196  22   8 226 722
+         Elastic net 0.678   0.442     0.761        0.093        0.988      0.719 0.762 0.164         0.540 0.197  23   9 225 721
+             XGBoost 0.673   0.453     0.763        0.214        0.949      0.589 0.780 0.314         0.582 0.245  53  37 195 693
+  Decision tree (d3) 0.631   0.370     0.760        0.153        0.966      0.603 0.770 0.244         0.559 0.211  38  25 210 705
+    best accuracy: XGBoost at 0.763 against a no-information rate of 0.746
+
+
+==============================================================================
+FIGURES
+==============================================================================
+  wrote output\figures\17_roc_pr.png
+  wrote output\figures\18_threshold_sweep.png
+
+ANSWERS
+==============================================================================
+
+A35. WHY ACCURACY IS THE WRONG HEADLINE HERE
+    At the default 0.5 cut-off the model is 76.1% accurate. A model that
+    predicts nobody dies is 74.6% accurate. The entire value of the fitting,
+    the imputation, the penalisation and the cross-validation, measured this
+    way, is +1.4 percentage points.
+
+    That is not because the model is worthless -- 05_modelling.py shows it
+    discriminates and is well calibrated -- but because accuracy at a fixed
+    threshold is close to uninformative when one class holds
+    25.4% of the sample. The no-information rate is the floor any
+    metric must beat, and accuracy starts most of the way there for free.
+
+    Look at what the 0.5 threshold actually does: it flags 32 patients of
+    978, identifying 23 of 248 deaths. Sensitivity 0.093. A model
+    deployed to find high-risk patients that misses most of them is not usable,
+    and its accuracy is the number that hides this.
+
+    Two conclusions. Accuracy should not be the headline for an imbalanced
+    clinical outcome; report it, but beside the no-information rate so the
+    comparison cannot be avoided. And 0.5 is not a neutral default -- it is a
+    specific and usually wrong claim about the relative cost of the two errors.
+
+A36. WHICH NUMBER TO CHOOSE THE THRESHOLD FOR
+    None of them, on their own. The four move in different directions by
+    construction, and the sweep shows there is no threshold that is good at all
+    of them: raise it and specificity and PPV improve while sensitivity and NPV
+    fall; lower it and the reverse. That is not a defect to be optimised away,
+    it is the trade the threshold exists to express.
+
+    Which number matters depends on what the model is FOR, and the four map onto
+    different clinical uses:
+
+      * SENSITIVITY (recall) for a rule-out tool. If the question is "who can
+        safely be discharged", missing a death is the expensive error and you
+        accept false positives to avoid it. Here 90% sensitivity needs a threshold of 0.16, which flags 830 patients and gives an NPV of 0.91.
+      * SPECIFICITY and PPV for a rule-in tool, where flagging triggers a scarce
+        or invasive intervention and a false positive has real cost.
+      * NPV for reassurance -- the number a clinician implicitly wants when they
+        say "so this patient is low risk?"
+
+    Now look at where the named optimisation rules actually land: F1 at 0.24,
+    Youden's J at 0.24, Matthews correlation at 0.26. They very nearly
+    agree, and they cluster around the prevalence (25.4%).
+
+    That agreement is not reassuring, and it is worth being precise about why.
+    It is a property of a reasonably calibrated model at moderate prevalence --
+    several of these criteria drift toward the prevalence in that situation --
+    rather than evidence that they have found the right answer. They agree
+    because they are all asking a similar arithmetic question. None of them
+    asked a clinician anything.
+
+    The threshold that does NOT cluster with them is the one derived from a
+    clinical requirement: 0.16 for 90% sensitivity, far
+    below the rest. That is the tell. Formula-driven thresholds converge on an
+    answer with no clinical content; a decision-driven threshold sits wherever
+    the decision puts it.
+
+    Of the single-number summaries, MCC is the one to prefer if you must pick.
+    It uses all four cells of the confusion matrix, whereas F1 ignores true
+    negatives entirely -- which is a strange thing to ignore when three-quarters
+    of your patients are one.
+
+A37. F1 VERSUS NET BENEFIT
+    F1 peaks at threshold 0.24; net benefit over the best default strategy
+    peaks at 0.26. On this cohort they very nearly coincide -- and that near
+    agreement is the most misleading result in this file, because it invites the
+    conclusion that F1 was fine all along.
+
+    It was not. The agreement is a coincidence of this dataset, and the way to
+    see that is to ask what would happen if the clinical preference changed.
+    Suppose a missed death were judged ten times worse than an unnecessary
+    intervention rather than three. Net benefit moves immediately, because the
+    exchange rate is an input: you evaluate at a threshold near 0.09 instead.
+    F1 does not move at all. It cannot, because it has no way to represent the
+    preference -- there is no argument to F1 in which a cost ratio could be
+    supplied. Its peak stays where it was, and it would now be recommending an
+    operating point the clinician has explicitly rejected.
+
+    F1 is the harmonic mean of precision and recall. It treats a false positive
+    and a false negative as equally regrettable, and it never mentions true
+    negatives. Neither assumption is a clinical statement -- they are properties
+    of the formula, inherited from information retrieval, where the cost of
+    showing someone an irrelevant document and the cost of hiding a relevant one
+    are indeed roughly symmetric. In heart failure they are not remotely
+    symmetric, and nobody has said what the ratio should be.
+
+    Net benefit asks the question the other way round. You pick the threshold
+    FIRST, because the threshold is the clinical statement: acting at 20% risk
+    says one missed death is worth four unnecessary interventions. Net benefit
+    then tells you whether the model is worth using at that stated exchange
+    rate. The preference is an input, not something the metric invents.
+
+    So the clinical answer is: do not let a metric choose the threshold. Choose
+    the threshold from the decision, then report sensitivity, specificity, PPV
+    and NPV AT that threshold, and use decision curve analysis to check the
+    model beats treat-all and treat-none there. Reporting "F1 = 0.476" with
+    no threshold attached is reporting the output of an optimisation nobody
+    asked for.
+
+    Report F1 and accuracy because reviewers expect them, and be able to say
+    exactly this about why they are not driving the decision.
+
+A38. WHAT TRANSPORTS AND WHAT DOES NOT
+    Sensitivity and specificity are conditional on the true state -- among those
+    who died, what fraction did we flag -- so they are properties of the model
+    and its threshold. Move the model to a different hospital and, case mix
+    aside, they travel.
+
+    PPV and NPV are conditional on the PREDICTION -- among those we flagged,
+    what fraction died -- so they depend on how many people in the population
+    actually have the outcome. Holding this model and threshold fixed at 0.26
+    with sensitivity 0.581 and specificity 0.700, PPV runs from 0.09 at
+    5% prevalence to 0.74 at 60%, while NPV runs the other way from
+    0.97 to 0.53. The model has not changed at all.
+
+    That is why a published PPV is close to meaningless without the prevalence
+    beside it, and why "our model has 60% precision" is not a portable claim. It
+    also compounds the transportability problem from 04_clinical.py A22: this
+    cohort is from 1989-94 with 25.4% 180-day mortality, and a
+    contemporary heart failure population on modern therapy has substantially
+    lower mortality. Deploy this threshold there and the PPV falls even if the
+    model's discrimination is unchanged.
+
+    The practical rule: quote sensitivity and specificity as model properties;
+    quote PPV and NPV only with the prevalence they were computed at; and if you
+    are asked what the model would do somewhere else, recompute them from Bayes
+    rather than assuming they carry over.
+==============================================================================
+
