@@ -31,7 +31,7 @@ import pandas as pd
 from scipy import stats
 
 import viz
-from report import RULE, Facts, configure_pandas, fmt_p, header, question, run_and_capture
+from report import Facts, RULE, configure_pandas, fmt_p, header, question, render_answers, run_and_capture
 from support2 import (
     DNR_IN_ADMISSION_LABEL,
     DNR_PREEXISTING_LABEL,
@@ -503,8 +503,8 @@ def main() -> None:
     path = figure_dnr(chf)
     print(f"  wrote {path.relative_to(Path(__file__).resolve().parent)}")
 
-    print(ANSWERS.format(rule=RULE,
-                         **collect_facts(d, dnr, origin, absent, sens)))
+    print(render_answers(ANSWERS,
+                         dict(collect_facts(d, dnr, origin, absent, sens), rule=RULE)))
 
 
 if __name__ == "__main__":

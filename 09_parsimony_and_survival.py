@@ -47,7 +47,7 @@ from modelling import (
     discrimination_metrics,
     make_outcome,
 )
-from report import RULE, Facts, configure_pandas, fmt_p, header, question, run_and_capture
+from report import Facts, RULE, configure_pandas, fmt_p, header, question, render_answers, run_and_capture
 from support2 import OUTCOME_EVENT, OUTCOME_TIME, UNITS, analysis_frames
 
 OUT_DIR = Path(__file__).resolve().parent / "output"
@@ -522,7 +522,7 @@ def main() -> None:
         c_gap_full=f"{cox['concordance'] - full_auc:+.3f}",
         ph_verdict=ph_verdict,
     )
-    print(ANSWERS.format(rule=RULE, **facts))
+    print(render_answers(ANSWERS, dict(facts, rule=RULE)))
 
 
 if __name__ == "__main__":

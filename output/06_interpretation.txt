@@ -98,7 +98,6 @@ FIGURES
   wrote output\figures\13_shap.png
   wrote output\figures\14_dendrogram.png
   wrote output\figures\15_decision_tree.png
-
 ANSWERS
 ==============================================================================
 
@@ -110,20 +109,21 @@ A28. WHAT A SHAP VALUE IS, AND THE TWO MISREADINGS
     that patient's prediction and the cohort baseline, which is why the local
     explanation above adds up.
 
-    The first misreading is as an odds ratio. It is not one. An odds ratio is a
-    single number describing a feature's effect everywhere; a SHAP value is
+    The first misreading is as an odds ratio. It is not one. An odds ratio is
+    a single number describing a feature's effect everywhere; a SHAP value is
     specific to one patient and changes from patient to patient, which is
     precisely what makes it useful for a bedside explanation and useless for a
-    Table 2. If a clinician asks "so what is the odds ratio for creatinine", the
-    honest answer is that this model does not have one, and that the elastic net
-    in 05_modelling.py does.
+    Table 2. If a clinician asks "so what is the odds ratio for creatinine",
+    the honest answer is that this model does not have one, and that the
+    elastic net in 05_modelling.py does.
 
-    The second misreading is causal, and it is the dangerous one. SHAP explains
-    the MODEL, not the patient. If two features are correlated the attribution
-    between them is close to arbitrary -- the model may lean on either, and SHAP
-    will faithfully report whichever it used. Nothing here licenses the sentence
-    "lowering this value would reduce risk". A high contribution means the model
-    used the feature, not that the feature causes the outcome.
+    The second misreading is causal, and it is the dangerous one. SHAP
+    explains the MODEL, not the patient. If two features are correlated the
+    attribution between them is close to arbitrary -- the model may lean on
+    either, and SHAP will faithfully report whichever it used. Nothing here
+    licenses the sentence "lowering this value would reduce risk". A high
+    contribution means the model used the feature, not that the feature causes
+    the outcome.
 
     Stated positively, and this is the real reason to include it: SHAP gives a
     per-patient explanation, which is what a clinician actually wants at a
@@ -138,31 +138,31 @@ A29. FOUR LINKAGES, FOUR ANSWERS
     about cluster shape.
 
     Single linkage takes the MINIMUM distance between members. It chains: a
-    sequence of near-neighbours drags distant points into one cluster, which is
-    why its largest cluster swallows 99.5% of the cohort while the
-    rest fragment into near-singletons.
+    sequence of near-neighbours drags distant points into one cluster, which
+    is why its largest cluster swallows 99.5% of the cohort while the rest
+    fragment into near-singletons.
 
-    Complete linkage takes the MAXIMUM, insisting every member be close to every
-    other, and textbooks describe it as producing compact, roughly equal groups.
-    It does not here -- its largest cluster still holds 98.4%. That
-    is worth noticing rather than glossing: in 39 standardised
-    dimensions almost every pair of patients is far apart and at similar
-    distances, so the maximum-distance criterion has little to discriminate
-    with. Average linkage behaves like single (99.4%).
+    Complete linkage takes the MAXIMUM, insisting every member be close to
+    every other, and textbooks describe it as producing compact, roughly equal
+    groups. It does not here -- its largest cluster still holds 98.4%. That is
+    worth noticing rather than glossing: in 39 standardised dimensions almost
+    every pair of patients is far apart and at similar distances, so the
+    maximum-distance criterion has little to discriminate with. Average
+    linkage behaves like single (99.4%).
 
-    Only Ward's method produces a usable partition (122, 565, 17, 274), because it
-    merges to minimise the increase in within-cluster variance rather than
-    reasoning about any single pair.
+    Only Ward's method produces a usable partition (122, 565, 17, 274),
+    because it merges to minimise the increase in within-cluster variance
+    rather than reasoning about any single pair.
 
-    Now read the diagnostics carefully, because the naive reading is backwards.
-    Cophenetic correlation is highest for average (0.90),
-    and the best silhouette is 0.55 -- which looks like a well
-    separated solution until you notice both belong to the degenerate
-    partitions. A silhouette is flattering when 99% of points sit in one cluster
-    and the remainder are distant singletons: each point is close to its own
-    cluster and far from the tiny others, and the score rewards that. Ward's
-    partition -- the only one that divides the cohort at all -- scores
-    0.05, which is honest and means no separation worth the name.
+    Now read the diagnostics carefully, because the naive reading is
+    backwards. Cophenetic correlation is highest for average (0.90), and the
+    best silhouette is 0.55 -- which looks like a well separated solution
+    until you notice both belong to the degenerate partitions. A silhouette is
+    flattering when 99% of points sit in one cluster and the remainder are
+    distant singletons: each point is close to its own cluster and far from
+    the tiny others, and the score rewards that. Ward's partition -- the only
+    one that divides the cohort at all -- scores 0.05, which is honest and
+    means no separation worth the name.
 
     A high internal validity score on a degenerate clustering is a trap, and
     quoting the best number across linkages without checking WHICH partition
@@ -174,55 +174,55 @@ A29. FOUR LINKAGES, FOUR ANSWERS
     build them, such as treatment response. And clinical coherence -- a
     cardiologist recognising the groups as patients they have met.
 
-    This matters because the technique is not fanciful here: HFpEF phenogrouping
-    by cluster analysis is real published cardiology. But those studies cluster
-    on echocardiographic structure and function, and the defining variable --
-    ejection fraction -- is exactly what this dataset lacks (04_clinical.py Q21).
-    Clustering heart failure patients without it is phenotyping a condition with
-    its defining measurement missing.
+    This matters because the technique is not fanciful here: HFpEF
+    phenogrouping by cluster analysis is real published cardiology. But those
+    studies cluster on echocardiographic structure and function, and the
+    defining variable -- ejection fraction -- is exactly what this dataset
+    lacks (04_clinical.py Q21). Clustering heart failure patients without it
+    is phenotyping a condition with its defining measurement missing.
 
-    So the honest framing is exploratory, and the honest conclusion is negative:
-    the partition is unstable across linkage choices, weakly separated, and
-    cannot be validated. Reporting it as "we identified four patient subtypes"
-    would be the single most overstated sentence available in this project.
+    So the honest framing is exploratory, and the honest conclusion is
+    negative: the partition is unstable across linkage choices, weakly
+    separated, and cannot be validated. Reporting it as "we identified four
+    patient subtypes" would be the single most overstated sentence available
+    in this project.
 
 A30. THE CASE FOR THE TREE, AND AGAINST IT
-    For. It is the only model here a clinician can apply without a computer:
-    5 terminal groups reached by three questions, with observed risks
-    from 17.8% to 60.3% against a cohort rate of 25.4%. That
-    is the form clinical risk tools actually take -- CHA2DS2-VASc, TIMI, Wells
-    are all simple rules, and they are used precisely because they are simple.
-    A model that is never applied has an effective AUC of nothing, and adoption
-    is a real term in that equation rather than a consolation prize.
+    For. It is the only model here a clinician can apply without a computer: 5
+    terminal groups reached by three questions, with observed risks from 17.8%
+    to 60.3% against a cohort rate of 25.4%. That is the form clinical risk
+    tools actually take -- CHA2DS2-VASc, TIMI, Wells are all simple rules, and
+    they are used precisely because they are simple. A model that is never
+    applied has an effective AUC of nothing, and adoption is a real term in
+    that equation rather than a consolation prize.
 
-    Against. A single tree is unstable: refit it on a bootstrap resample and the
-    split variables change, because each split is chosen greedily and every
-    later split is conditional on it. It discards information by forcing
-    continuous variables into thresholds -- creatinine does not become dangerous
-    at one particular value, and 02_profile.py Q10 showed its risk curve rises
-    then plateaus, which a threshold cannot express. And it is the worst
-    DISCRIMINATING model in 05_modelling.py by a margin that, unlike every other
-    pairwise comparison there, excludes zero: it is the one model genuinely
-    beaten rather than merely different.
+    Against. A single tree is unstable: refit it on a bootstrap resample and
+    the split variables change, because each split is chosen greedily and
+    every later split is conditional on it. It discards information by forcing
+    continuous variables into thresholds -- creatinine does not become
+    dangerous at one particular value, and 02_profile.py Q10 showed its risk
+    curve rises then plateaus, which a threshold cannot express. And it is the
+    worst DISCRIMINATING model in 05_modelling.py by a margin that, unlike
+    every other pairwise comparison there, excludes zero: it is the one model
+    genuinely beaten rather than merely different.
 
-    One thing it is NOT is badly calibrated -- slope 0.90, better than
-    both the unpenalised regression and XGBoost. That is less impressive than it
+    One thing it is NOT is badly calibrated -- slope 0.90, better than both
+    the unpenalised regression and XGBoost. That is less impressive than it
     sounds. A tree can emit only as many distinct probabilities as it has
-    leaves, 5 here, and each is the observed rate in its own training
-    group; predictions that coarse have little room to be overconfident. Good
+    leaves, 5 here, and each is the observed rate in its own training group;
+    predictions that coarse have little room to be overconfident. Good
     calibration achieved by refusing to make fine distinctions is not the same
     virtue as good calibration across a continuous range.
 
     The resolution is not to choose. Report the penalised regression as the
     model, with odds ratios and a calibration curve, and offer the tree as a
-    simplified companion with its performance cost stated explicitly. Presenting
-    the tree ALONE would be indefensible; presenting it as a deliberately
-    simplified companion, with the trade quantified, is a judgement a reviewer
-    can evaluate.
+    simplified companion with its performance cost stated explicitly.
+    Presenting the tree ALONE would be indefensible; presenting it as a
+    deliberately simplified companion, with the trade quantified, is a
+    judgement a reviewer can evaluate.
 
     What would be indefensible either way is presenting the tree as though its
     thresholds were discovered facts about physiology. They are artefacts of a
     greedy algorithm on 978 patients, and a second sample would produce
     different numbers.
 ==============================================================================
-

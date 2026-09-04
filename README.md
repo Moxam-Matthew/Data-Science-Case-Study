@@ -13,20 +13,23 @@ at the bottom of the file. The reasoning is the point; the conclusion is cheap.
 **Data:** SUPPORT2, UCI Machine Learning Repository [dataset 880](https://archive.ics.uci.edu/dataset/880/support2).
 Harrell, F. (1995). https://doi.org/10.3886/ICPSR02957.v2
 
-> **Status — complete.** Exploration, data quality, cohort description, modelling,
-> validation and the confirmatory analysis are all finished and verified by running;
-> full console transcripts are committed under [`output/`](output/). **The held-out
-> 30% was read once, in [`10_confirmatory.py`](10_confirmatory.py), after every
-> modelling decision was settled** — and the result reversed one of this project's own
-> earlier claims, which is reported rather than quietly dropped. Every quantitative
-> claim on this page is interpolated from a run rather than typed, and the
-> [test suite](tests/) pins the published values so a dependency change breaks the
-> build instead of silently changing the write-up.
+> **Status — complete, across two cohorts.** The study was run first on heart failure
+> (n=1,387) and then replicated in ICU sepsis (n=3,515) — not to obtain a better
+> number, but because several heart failure conclusions rested on 6.4 events per
+> variable, which is the regime where a finding looks true whether or not it is.
+> **Each cohort's held-out 30% was read exactly once**, in
+> [`10_confirmatory.py`](10_confirmatory.py) and [`12_replication.py`](12_replication.py),
+> after every modelling decision was settled. The heart failure result reversed one of
+> this project's own earlier claims; the replication overturned another. Both are
+> reported rather than quietly dropped. Every quantitative claim on this page is
+> interpolated from a run rather than typed, and the [test suite](tests/) pins the
+> published values so a dependency change breaks the build instead of silently
+> changing the write-up.
 
 
 > ## → [**EXECUTIVE SUMMARY**](EXECUTIVE_SUMMARY.md) ←
-> **Start here.** One page: the held-out result, the two claims that did not survive
-> validation, and what may and may not be concluded. The rest of this README is the
+> **Start here.** A one-screen executive layer — the headline result, what to do next,
+> and a glossary — over a full technical appendix. The rest of this README is the
 > methodology behind it.
 
 ---
@@ -191,27 +194,58 @@ death) is held out and never read before modelling.
 
 ## Structure
 
+The analysis runs in two arms. **CHF** (n=1,387) is the primary cohort and the
+one the clinical narrative is written for. **ARF/MOSF w/Sepsis** (n=3,515) is a
+replication arm added because several CHF conclusions rested on 6.4 events per
+variable, which is the regime where they would look true whether or not they
+were. The same code runs both.
+
 ```
-├── 01_eda.py                  # Q1–6:  outcome structure, leakage audit,
-│                              #        missingness mechanism, binary vs time-to-event
-├── 02_profile.py              # Q7–11:  Table 1, physiologic plausibility,
+CHF arm -- primary
+├── 01_eda.py                  # Q1-6:   outcome structure, leakage audit,
+│                              #         missingness mechanism, binary vs time-to-event
+├── 02_profile.py              # Q7-11:  Table 1, physiologic plausibility,
 │                              #         distributions, functional form, collinearity
-├── 03_cohort.py               # Q12–17: data dictionary, survival with numbers at
+├── 03_cohort.py               # Q12-17: data dictionary, survival with numbers at
 │                              #         risk, hazard shape, missingness patterns,
 │                              #         enrolment forensics, VIF on imputed data
-├── 04_clinical.py             # Q18–22: cohort description, DNR as a care decision,
+├── 04_clinical.py             # Q18-22: cohort description, DNR as a care decision,
 │                              #         prediction origin, absent HF phenotype,
 │                              #         transportability to modern practice
+├── 05_modelling.py            # Q23-27: five model families, calibration, the
+│                              #         physician benchmark, decision curve analysis
+├── 06_interpretation.py       # Q28-30: SHAP, four-linkage clustering, bedside tree
+├── 07_validation.py           # Q31-34: Riley sample size, optimism bootstrap,
+│                              #         incremental value, odds ratio to risk ratio
+├── 08_operating_points.py     # Q35-38, Q49: threshold metrics, classification
+│                              #         reports, the survival framing of the same model
+├── 09_parsimony_and_survival.py # Q39-42: seven-variable clinical model, Cox with
+│                              #         splines, proportional hazards, concordance
+├── 10_confirmatory.py         # Q43-45: THE HELD-OUT 30%, SPENT ONCE
+└── 11_ceiling_and_transport.py # Q46-48: learning curve, exhaustive search,
+                               #         temporal validation across a protocol change
+
+Sepsis arm -- replication
+├── 12_replication.py          # Q50-53: cohort framing, which findings replicate at
+│                              #         EPV 28, the clean sepsis holdout spent once
+├── 13_horizon.py              # Q54-56: what an any-horizon label costs, and the
+│                              #         survival model that uses every timeframe
+└── 14_sepsis_utility.py       # Q57-61: decision curve, prevalence and Bayes,
+                               #         incremental value, learning curve, ensembling
+
 ├── src/
-│   ├── support2.py            # Load → bound → split; column governance
+│   ├── support2.py            # Load -> bound -> split; cohort selection; governance
 │   ├── modelling.py           # Outcome, fold-wise imputation pipeline, metrics
+│   ├── thresholds.py          # Confusion-matrix metrics, PPV/NPV under Bayes
 │   ├── stats_utils.py         # SMD, reverse-KM follow-up, FDR correction
-│   ├── report.py              # Shared scaffolding; the Facts interpolation
+│   ├── report.py              # Shared scaffolding; Facts interpolation; wrapping
 │   └── viz.py                 # Figure styling; CVD-validated palette
-├── tests/                     # 45 tests, incl. golden values for published results
+├── tools/
+│   └── check_duplicate_prose.py  # Catches a paragraph restated twice in a report
+├── tests/                     # 98 tests, incl. golden values for published results
 ├── output/
 │   ├── figures/               # Generated figures
-│   └── 0*.txt                 # Committed console transcripts
+│   └── *.txt                  # Committed console transcripts
 └── pyproject.toml
 ```
 
@@ -219,10 +253,18 @@ Run:
 
 ```bash
 pip install -e ".[dev]"
+# CHF arm
 python 01_eda.py && python 02_profile.py && python 03_cohort.py
-python 04_clinical.py && python 05_modelling.py
-python 06_interpretation.py && python 07_validation.py
+python 04_clinical.py && python 05_modelling.py && python 06_interpretation.py
+python 07_validation.py && python 08_operating_points.py
+python 09_parsimony_and_survival.py && python 10_confirmatory.py
+python 11_ceiling_and_transport.py
+
+# Sepsis replication arm
+python 12_replication.py && python 13_horizon.py && python 14_sepsis_utility.py
+
 pytest
+python tools/check_duplicate_prose.py
 ```
 
 `pip install -e .` puts the `src/` modules on the path, which is why no script
@@ -677,6 +719,14 @@ cohort rather than hardcoding a list.
 - [x] Parsimonious 7-variable clinical model
 - [x] Cox proportional hazards with splines on creatinine, PH assumption tested
 - [x] **Confirmatory evaluation on the held-out 30% — spent once**
+- [x] Learning curve, exhaustive hyperparameter search, temporal validation across
+      the protocol change
+- [x] **Replication in a second cohort (ARF/MOSF w/Sepsis, EPV 28 against CHF's 6.4)**
+- [x] Clean sepsis holdout — spent once
+- [x] Horizon analysis: what an any-horizon label costs, and the Cox model that uses
+      every timeframe correctly
+- [x] Decision curve analysis, PPV/NPV under Bayes, incremental value over the
+      physician, learning curve and ensembling on the sepsis arm
 
 ## Limitations
 

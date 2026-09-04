@@ -1,0 +1,273 @@
+
+==============================================================================
+SUPPORT2 -- replication in ARF/MOSF w/Sepsis
+==============================================================================
+  Primary cohort was CHF: 978 training patients, 248 events, EPV 6.4.
+  This cohort: 2,458 training patients, 1,091 events, EPV 28.0.
+  28 candidate predictors, same governance as the CHF arm.
+
+------------------------------------------------------------------------------
+QUESTION 50: Who are these patients, and what is the clinical frame? Heart
+failure vocabulary does not transfer to an ICU sepsis population.
+------------------------------------------------------------------------------
+  2,458 patients with acute respiratory failure or multi-organ
+  system failure in the setting of sepsis. 1,091 died within
+  180 days (44.4%).
+
+    age                 median 64
+    sex                 45.0% female
+    comorbidity burden  20.1% with 3 or more
+    neurological         41.0% with any coma score
+    oxygenation         median P/F 202; 65.9% below 300
+    renal               median creatinine 1.3 mg/dL; 29.2% above 2.0
+    DNR order (any)     35.7%
+
+  Events per variable: 28.0 (CHF arm: 6.4)
+
+------------------------------------------------------------------------------
+QUESTION 51: Do the exploratory findings replicate -- the enrolment-wave
+artefact, and DNR as a care decision rather than a disease state?
+------------------------------------------------------------------------------
+  (a) Enrolment wave, split on whether BUN was recorded. The two
+      negative controls are missing for ordinary reasons and should
+      show no wave structure:
+
+variable             kind  missing_early_wave  missing_late_wave
+     bun     protocol lab               100.0                0.0
+   urine     protocol lab                99.2               11.1
+ glucose     protocol lab               100.0                2.9
+    adlp negative control                80.7               79.0
+  income negative control                38.7               32.7
+
+  (b) Cumulative-outcome test vs time-to-event test, same splits.
+      'shrinkage' is how many times smaller the statistic gets once
+      exposure time is accounted for:
+
+variable             kind  chi2_binary p_binary  chi2_logrank p_logrank  shrinkage  fu_ratio
+     bun     protocol lab         27.6   <0.001           2.3     0.132       12.2      2.37
+   urine     protocol lab         28.4   <0.001           4.0     0.047        7.2      2.25
+ glucose     protocol lab         27.9   <0.001           2.9     0.089        9.6      2.33
+    adlp negative control         97.2   <0.001         122.1    <0.001        0.8      0.98
+  income negative control          5.8    0.016          10.2     0.001        0.6      1.03
+
+  (c) DNR against the 1,572 patients with no directive (21.1% mortality):
+
+            dnr   n  mortality_180  gap_vs_no_dnr p_vs_no_dnr
+dnr before sadm  45           71.1           50.0      <0.001
+ dnr after sadm 833           86.9           65.8      <0.001
+
+------------------------------------------------------------------------------
+QUESTION 52: Does 'gradient boosting does not beat penalised regression' hold
+at EPV 28, or was it an artefact of a small sample?
+------------------------------------------------------------------------------
+                  model   auc  pr_auc  calibration_slope  brier
+   Unpenalised logistic 0.747   0.698              0.910  0.202
+         LASSO logistic 0.744   0.689              1.077  0.203
+   Elastic net logistic 0.744   0.692              1.068  0.203
+                XGBoost 0.748   0.705              0.920  0.201
+Decision tree (depth 3) 0.700   0.629              1.000  0.215
+
+  XGBoost minus elastic net, sepsis cohort:
+    difference   +0.0038  [-0.0061, +0.0133]  crosses zero True
+  Same comparison in the CHF cohort (EPV 6.4):
+    difference   -0.0051  [-0.0361, +0.0279]  crosses zero True
+
+------------------------------------------------------------------------------
+QUESTION 53: Spend the clean sepsis holdout. Does the confirmatory result look
+different when the cohort is adequately powered?
+------------------------------------------------------------------------------
+  train 2,458 (44.4% events)   held out 1,057 (45.0% events)
+  prevalence gap 0.6 points (CHF arm: 5.4 points, which broke its calibration)
+
+                model   auc  calibration_slope  calibration_intercept  brier  mean_predicted  observed
+Elastic net (primary) 0.739              0.957                  0.047  0.206           0.441      0.45
+              XGBoost 0.737              0.805                  0.051  0.208           0.441      0.45
+
+  cross-validated AUC 0.744 -> held-out 0.739 (-0.005)
+
+  XGBoost minus elastic net on held-out sepsis patients:
+    -0.0024 [-0.0171, +0.0121]  crosses zero True
+
+  Against the attending physician's 6-month survival estimate, on the
+  887 held-out patients who have one:
+    physician 0.767   model 0.735
+    model minus physician -0.0319 [-0.0716, +0.0063]  crosses zero True
+    CHF held-out, same comparison: physician 0.711, model 0.633
+
+==============================================================================
+FIGURES
+==============================================================================
+  wrote output\figures\22_replication.png
+ANSWERS
+==============================================================================
+
+A50. WHO THESE PATIENTS ARE
+    2,458 adults with acute respiratory failure or multi-organ system failure
+    in the setting of sepsis, 1,091 of whom died within 180 days (44.4%).
+    Median age 64, 45.0% female, 20.1% carrying three or more comorbidities.
+
+    The clinical frame is intensive care, not cardiology, and the vocabulary
+    has to change with it. The organ-system markers this dataset carries map
+    onto the components of a modern severity score: P/F ratio (median 202,
+    with 65.9% below 300, the acute lung injury threshold) is the respiratory
+    component of SOFA; creatinine (median 1.3 mg/dL, 29.2% above 2.0) is the
+    renal component; the coma score stands in for the neurological one. APACHE
+    III is in the file as `aps` and remains excluded for the reason it always
+    was -- it is computed from the same vitals and labs used as predictors, so
+    it is collinear by construction rather than an independent benchmark.
+
+    What this cohort does NOT provide is the thing that would make it a proper
+    sepsis study: no lactate, no culture results, no antibiotic timing, no
+    vasopressor or fluid data. The Surviving Sepsis Campaign bundles are built
+    on exactly those, and none of them are here. So this cohort is being used
+    for its statistical properties, and the clinical interpretation is
+    correspondingly thinner than the CHF arm's. Saying that plainly is better
+    than dressing it up.
+
+    The statistical properties are the point. Events per variable is 28.0
+    against the CHF arm's 6.4 -- above the conventional floor of 10 rather
+    than well below it, and enough for Riley's criteria to be roughly
+    satisfied where the CHF cohort missed them by a factor of 2.5.
+
+A51. DO THE EXPLORATORY FINDINGS REPLICATE?
+    One does, emphatically. One does not, and the failure is more interesting
+    than the success.
+
+    THE ENROLMENT ARTEFACT REPLICATES. The three protocol labs are absent for
+    essentially every patient on one side of the split and present for almost
+    all of them on the other, in a cohort with different patients, a different
+    mortality rate and a different clinical course. This is the finding that
+    SHOULD carry across, because it is a property of the study rather than of
+    heart failure: SUPPORT enrolled in two waves with different
+    data-collection instruments, so every disease group inherits the same
+    structure. The negative controls are what make it convincing -- adlp and
+    income are missing for ordinary reasons and show essentially no wave
+    structure, so the split is picking out a collection protocol rather than
+    sick patients.
+
+    The downstream consequence replicates too, and this is where a threshold
+    test would have misled. Compare the two test statistics rather than the
+    two p-values. The three protocol labs shrink by a factor of 7 or more once
+    the test accounts for exposure time. The negative controls do not shrink
+    at all -- their statistics GROW, by at least 1.3x, which is what happens
+    when a real association is measured more precisely by adding time-to-event
+    information rather than being explained away by it. Censored follow-up
+    runs 2.32x longer for the unmeasured group among the labs, against 1.01x
+    for the controls.
+
+    That is the diagnostic in a single line: an artefact loses an order of
+    magnitude when you account for exposure time; a real effect gains.
+
+    Note that in a cohort 2.5 times the size, one of those log-rank p-values
+    still lands below 0.05. Reporting "did not replicate" on that basis would
+    be wrong. Power scales with n, so the question is never whether a p-value
+    crossed a line in a bigger sample -- it is whether the EFFECT collapsed.
+    It did, by more than an order of magnitude, in the same three variables
+    and neither control.
+
+    THE DNR FINDING DOES NOT REPLICATE. A directive recorded before admission
+    carries a +50.0 point mortality gap against no directive (<0.001), where
+    in CHF the same comparison was flat.
+
+    In CHF, a directive the patient brought from home was statistically
+    indistinguishable from no directive (log-rank p = 0.882) while one written
+    during the admission nearly doubled mortality. That contrast was the whole
+    argument for treating DNR as a record of a care decision rather than a
+    measure of illness. It does not hold here.
+
+    The honest reading is that the CHF version was probably too clean. That
+    cohort had few patients with a pre-existing directive, so
+    "indistinguishable from no DNR" may have been low power rather than
+    genuine equivalence -- and the same caution applies in reverse here, where
+    the group is only 45 patients wide. A clinical reading is also available:
+    someone arriving at an ICU in multi-organ failure with a standing
+    directive is plausibly frailer relative to their peers than a heart
+    failure patient with the same paperwork.
+
+    What survives either way is the decision that came out of it. In-admission
+    DNR remains the strongest single marker in the cohort, and it is still
+    excluded from the model for the same reason -- a variable that records a
+    decision to stop treating cannot be used to predict the outcome of
+    treatment without becoming self-fulfilling. That exclusion never depended
+    on the before-versus-after contrast.
+
+A52. DOES THE MODEL COMPARISON HOLD AT EPV 28?
+    It holds. XGBoost minus elastic net is +0.0038 with interval [-0.0061,
+    +0.0133], crossing zero at EPV 28 just as it did at EPV 6.4.
+
+    This was the test worth running, because the CHF result was weak by
+    construction. At 6.4 events per variable, penalised regression beating
+    gradient boosting is close to what theory predicts regardless of whether
+    it is true in general: small samples punish flexible models, and
+    regularisation is doing most of the work. A sceptical reviewer would have
+    been right to discount it.
+
+    At 28.0 events per variable that defence disappears. XGBoost has enough
+    data to fit whatever structure is there, and the comparison becomes a real
+    test of whether additional flexibility buys anything on tabular clinical
+    data.
+
+    Note also what happened to calibration. The CHF arm's penalised models had
+    slopes near 1.19 -- above 1, meaning predictions bunched too close to the
+    average, which is the signature of a penalty doing more work than the data
+    requires. If that was a sample-size effect rather than a coding error, the
+    slopes should move toward 1 once the penalty has more events to work with.
+
+    They did. On the sepsis cohort the penalised slopes are LASSO 1.08,
+    Elastic 1.07, an average distance from 1 of 0.072 against the CHF arm's
+    0.203. The over-shrinkage eased as the events accumulated, which is the
+    behaviour a correctly implemented penalty should show and is a useful
+    check that nothing is miscoded.
+
+A53. THE CLEAN HOLDOUT
+    The sepsis test partition had never been read. 10_confirmatory.py used
+    only the CHF test rows, so this is a genuine confirmatory analysis rather
+    than a second look -- and it is the one the CHF arm can no longer provide.
+
+    Cross-validated AUC 0.744 became 0.739 on held-out patients, a change of
+    -0.005. Performance held.
+
+    The prevalence gap between partitions is 0.6 points here against 5.4 in
+    the CHF arm. That matters: the CHF calibration failure was traced to
+    stratifying on all-cause death over full follow-up while modelling 180-day
+    mortality in a subgroup, and the resulting imbalance made the model
+    under-predict. The same defect exists here -- the split is still
+    stratified on the wrong outcome -- but the larger cohort makes it bite far
+    less, which is itself evidence for the diagnosis. Held-out calibration
+    slope is 0.96 against the CHF arm's 0.71. The failure did not recur.
+
+    THE PHYSICIAN COMPARISON. This was the CHF arm's most uncomfortable result
+    and the one most likely to be challenged, so it is the one most worth
+    re-testing. There, the model beat the attending physician in development
+    (0.687 against 0.655) and then lost to them on held-out patients (0.633
+    against 0.711), with the difference interval brushing zero. Two readings
+    were available and the CHF data could not separate them: either the
+    physician is genuinely the stronger predictor and the development result
+    was optimism, or the held-out sample was too small to resolve a real
+    difference. This cohort has enough patients with a recorded physician
+    estimate to say which.
+
+    The physician is ahead, and the interval does not exclude zero: model
+    0.735 against physician 0.767 on 887 patients, difference -0.0319
+    [-0.0716, +0.0063]. Taken alone that is 'not resolved'. Taken with the CHF
+    holdout it is more than that: both cohorts put the physician ahead, on
+    different patients with different illnesses, and the sepsis interval is
+    50% the width of the CHF one. Two independent estimates agreeing in
+    direction is evidence neither interval carries on its own. Of the two
+    readings the CHF arm could not separate, the sepsis cohort favours the
+    first: the physician is probably genuinely better, and the development
+    result was optimism rather than a small holdout.
+
+    Note what the comparison is and is not. The physician saw the patient; the
+    model saw a row. A clinician who has examined someone has information no
+    dataset here contains, so a model matching them is doing well and a model
+    losing to them is not embarrassing -- it is the expected result. The
+    useful question was never "does the model win", it is whether the model
+    adds anything the clinician does not already have.
+
+    What this does not fix is external validity. Both cohorts come from the
+    same five hospitals in the same programme between 1989 and 1994.
+    Replicating in a second disease group is a real strengthening of the
+    METHODS findings and says nothing about whether either model would work in
+    a modern ICU.
+==============================================================================

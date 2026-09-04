@@ -81,6 +81,29 @@ different case mix?
 
   PPV moves from 0.09 to 0.74 across that range while the model is unchanged.
 
+------------------------------------------------------------------------------
+QUESTION 49: Model survival rather than death -- predict toward 0 instead of 1.
+Does the other side of the classification give a usable tool?
+------------------------------------------------------------------------------
+  First, the arithmetic. Predicting survival is the same model:
+  coefficients become their exact negatives, standard errors and
+  log-likelihood are unchanged, AUC is identical. The positive class
+  is larger (730 survivors vs 248 deaths) but
+  precision is set by the MINORITY class, so nothing is gained.
+
+  What changes is the question. RULE OUT: who can be safely cleared?
+
+ cut  cleared  pct_cohort  died_anyway  miss_rate_pct   npv
+0.10        7         0.7            1           14.3 0.857
+0.12       23         2.4            3           13.0 0.870
+0.15       98        10.0           10           10.2 0.898
+0.20      346        35.4           50           14.5 0.855
+0.25      578        59.1           96           16.6 0.834
+0.30      744        76.1          145           19.5 0.805
+
+  Best achievable miss rate: 10.2% at cut 0.15, clearing 98 patients (10.0% of the cohort).
+  A rule-out instrument needs a miss rate in the low single digits.
+
 ==============================================================================
 CLASSIFICATION REPORT, EVERY MODEL, AT EACH STATED THRESHOLD
 ==============================================================================
@@ -121,7 +144,6 @@ FIGURES
 ==============================================================================
   wrote output\figures\17_roc_pr.png
   wrote output\figures\18_threshold_sweep.png
-
 ANSWERS
 ==============================================================================
 
@@ -133,65 +155,67 @@ A35. WHY ACCURACY IS THE WRONG HEADLINE HERE
 
     That is not because the model is worthless -- 05_modelling.py shows it
     discriminates and is well calibrated -- but because accuracy at a fixed
-    threshold is close to uninformative when one class holds
-    25.4% of the sample. The no-information rate is the floor any
-    metric must beat, and accuracy starts most of the way there for free.
+    threshold is close to uninformative when one class holds 25.4% of the
+    sample. The no-information rate is the floor any metric must beat, and
+    accuracy starts most of the way there for free.
 
-    Look at what the 0.5 threshold actually does: it flags 32 patients of
-    978, identifying 23 of 248 deaths. Sensitivity 0.093. A model
-    deployed to find high-risk patients that misses most of them is not usable,
-    and its accuracy is the number that hides this.
+    Look at what the 0.5 threshold actually does: it flags 32 patients of 978,
+    identifying 23 of 248 deaths. Sensitivity 0.093. A model deployed to find
+    high-risk patients that misses most of them is not usable, and its
+    accuracy is the number that hides this.
 
     Two conclusions. Accuracy should not be the headline for an imbalanced
     clinical outcome; report it, but beside the no-information rate so the
     comparison cannot be avoided. And 0.5 is not a neutral default -- it is a
-    specific and usually wrong claim about the relative cost of the two errors.
+    specific and usually wrong claim about the relative cost of the two
+    errors.
 
 A36. WHICH NUMBER TO CHOOSE THE THRESHOLD FOR
     None of them, on their own. The four move in different directions by
-    construction, and the sweep shows there is no threshold that is good at all
-    of them: raise it and specificity and PPV improve while sensitivity and NPV
-    fall; lower it and the reverse. That is not a defect to be optimised away,
-    it is the trade the threshold exists to express.
+    construction, and the sweep shows there is no threshold that is good at
+    all of them: raise it and specificity and PPV improve while sensitivity
+    and NPV fall; lower it and the reverse. That is not a defect to be
+    optimised away, it is the trade the threshold exists to express.
 
-    Which number matters depends on what the model is FOR, and the four map onto
-    different clinical uses:
+    Which number matters depends on what the model is FOR, and the four map
+    onto different clinical uses:
 
       * SENSITIVITY (recall) for a rule-out tool. If the question is "who can
         safely be discharged", missing a death is the expensive error and you
-        accept false positives to avoid it. Here 90% sensitivity needs a threshold of 0.16, which flags 830 patients and gives an NPV of 0.91.
-      * SPECIFICITY and PPV for a rule-in tool, where flagging triggers a scarce
-        or invasive intervention and a false positive has real cost.
-      * NPV for reassurance -- the number a clinician implicitly wants when they
-        say "so this patient is low risk?"
+        accept false positives to avoid it. Here 90% sensitivity needs a
+        threshold of 0.16, which flags 830 patients and gives an NPV of 0.91.
+        * SPECIFICITY and PPV for a rule-in tool, where flagging triggers a
+        scarce or invasive intervention and a false positive has real cost. *
+        NPV for reassurance -- the number a clinician implicitly wants when
+        they say "so this patient is low risk?"
 
     Now look at where the named optimisation rules actually land: F1 at 0.24,
-    Youden's J at 0.24, Matthews correlation at 0.26. They very nearly
-    agree, and they cluster around the prevalence (25.4%).
+    Youden's J at 0.24, Matthews correlation at 0.26. They very nearly agree,
+    and they cluster around the prevalence (25.4%).
 
     That agreement is not reassuring, and it is worth being precise about why.
-    It is a property of a reasonably calibrated model at moderate prevalence --
-    several of these criteria drift toward the prevalence in that situation --
-    rather than evidence that they have found the right answer. They agree
+    It is a property of a reasonably calibrated model at moderate prevalence
+    -- several of these criteria drift toward the prevalence in that situation
+    -- rather than evidence that they have found the right answer. They agree
     because they are all asking a similar arithmetic question. None of them
     asked a clinician anything.
 
     The threshold that does NOT cluster with them is the one derived from a
-    clinical requirement: 0.16 for 90% sensitivity, far
-    below the rest. That is the tell. Formula-driven thresholds converge on an
-    answer with no clinical content; a decision-driven threshold sits wherever
-    the decision puts it.
+    clinical requirement: 0.16 for 90% sensitivity, far below the rest. That
+    is the tell. Formula-driven thresholds converge on an answer with no
+    clinical content; a decision-driven threshold sits wherever the decision
+    puts it.
 
     Of the single-number summaries, MCC is the one to prefer if you must pick.
     It uses all four cells of the confusion matrix, whereas F1 ignores true
-    negatives entirely -- which is a strange thing to ignore when three-quarters
-    of your patients are one.
+    negatives entirely -- which is a strange thing to ignore when
+    three-quarters of your patients are one.
 
 A37. F1 VERSUS NET BENEFIT
     F1 peaks at threshold 0.24; net benefit over the best default strategy
     peaks at 0.26. On this cohort they very nearly coincide -- and that near
-    agreement is the most misleading result in this file, because it invites the
-    conclusion that F1 was fine all along.
+    agreement is the most misleading result in this file, because it invites
+    the conclusion that F1 was fine all along.
 
     It was not. The agreement is a coincidence of this dataset, and the way to
     see that is to ask what would happen if the clinical preference changed.
@@ -203,13 +227,13 @@ A37. F1 VERSUS NET BENEFIT
     supplied. Its peak stays where it was, and it would now be recommending an
     operating point the clinician has explicitly rejected.
 
-    F1 is the harmonic mean of precision and recall. It treats a false positive
-    and a false negative as equally regrettable, and it never mentions true
-    negatives. Neither assumption is a clinical statement -- they are properties
-    of the formula, inherited from information retrieval, where the cost of
-    showing someone an irrelevant document and the cost of hiding a relevant one
-    are indeed roughly symmetric. In heart failure they are not remotely
-    symmetric, and nobody has said what the ratio should be.
+    F1 is the harmonic mean of precision and recall. It treats a false
+    positive and a false negative as equally regrettable, and it never
+    mentions true negatives. Neither assumption is a clinical statement --
+    they are properties of the formula, inherited from information retrieval,
+    where the cost of showing someone an irrelevant document and the cost of
+    hiding a relevant one are indeed roughly symmetric. In heart failure they
+    are not remotely symmetric, and nobody has said what the ratio should be.
 
     Net benefit asks the question the other way round. You pick the threshold
     FIRST, because the threshold is the clinical statement: acting at 20% risk
@@ -217,40 +241,86 @@ A37. F1 VERSUS NET BENEFIT
     then tells you whether the model is worth using at that stated exchange
     rate. The preference is an input, not something the metric invents.
 
-    So the clinical answer is: do not let a metric choose the threshold. Choose
-    the threshold from the decision, then report sensitivity, specificity, PPV
-    and NPV AT that threshold, and use decision curve analysis to check the
-    model beats treat-all and treat-none there. Reporting "F1 = 0.476" with
-    no threshold attached is reporting the output of an optimisation nobody
-    asked for.
+    So the clinical answer is: do not let a metric choose the threshold.
+    Choose the threshold from the decision, then report sensitivity,
+    specificity, PPV and NPV AT that threshold, and use decision curve
+    analysis to check the model beats treat-all and treat-none there.
+    Reporting "F1 = 0.476" with no threshold attached is reporting the output
+    of an optimisation nobody asked for.
 
     Report F1 and accuracy because reviewers expect them, and be able to say
     exactly this about why they are not driving the decision.
 
 A38. WHAT TRANSPORTS AND WHAT DOES NOT
-    Sensitivity and specificity are conditional on the true state -- among those
-    who died, what fraction did we flag -- so they are properties of the model
-    and its threshold. Move the model to a different hospital and, case mix
-    aside, they travel.
+    Sensitivity and specificity are conditional on the true state -- among
+    those who died, what fraction did we flag -- so they are properties of the
+    model and its threshold. Move the model to a different hospital and, case
+    mix aside, they travel.
 
     PPV and NPV are conditional on the PREDICTION -- among those we flagged,
     what fraction died -- so they depend on how many people in the population
     actually have the outcome. Holding this model and threshold fixed at 0.26
-    with sensitivity 0.581 and specificity 0.700, PPV runs from 0.09 at
-    5% prevalence to 0.74 at 60%, while NPV runs the other way from
-    0.97 to 0.53. The model has not changed at all.
+    with sensitivity 0.581 and specificity 0.700, PPV runs from 0.09 at 5%
+    prevalence to 0.74 at 60%, while NPV runs the other way from 0.97 to 0.53.
+    The model has not changed at all.
 
     That is why a published PPV is close to meaningless without the prevalence
-    beside it, and why "our model has 60% precision" is not a portable claim. It
-    also compounds the transportability problem from 04_clinical.py A22: this
-    cohort is from 1989-94 with 25.4% 180-day mortality, and a
+    beside it, and why "our model has 60% precision" is not a portable claim.
+    It also compounds the transportability problem from 04_clinical.py A22:
+    this cohort is from 1989-94 with 25.4% 180-day mortality, and a
     contemporary heart failure population on modern therapy has substantially
     lower mortality. Deploy this threshold there and the PPV falls even if the
     model's discrimination is unchanged.
 
     The practical rule: quote sensitivity and specificity as model properties;
-    quote PPV and NPV only with the prevalence they were computed at; and if you
-    are asked what the model would do somewhere else, recompute them from Bayes
-    rather than assuming they carry over.
-==============================================================================
+    quote PPV and NPV only with the prevalence they were computed at; and if
+    you are asked what the model would do somewhere else, recompute them from
+    Bayes rather than assuming they carry over.
 
+A49. THE OTHER SIDE OF THE CLASSIFICATION
+    Two answers, because the question contains two claims.
+
+    The arithmetic one first: predicting survival is not a different model.
+    Flip the label and the coefficients become their exact negatives, agreeing
+    to 2e-16; the standard errors are identical to 3e-17; the log-likelihood
+    is the same number; AUC and Brier are unchanged. The positive class is
+    much larger -- 730 survivors against 248 deaths -- and it is natural to
+    read that as more data. It is not. The Fisher information is the same
+    matrix and only the sign of the score flips.
+
+    The reason is worth holding onto: precision is governed by the MINORITY
+    class, not the labelled-positive one. That is exactly why
+    events-per-variable is defined as min(events, non-events) divided by
+    parameters -- 6.4 here, whichever way round the labels go. The model
+    learns a boundary, and the boundary is pinned down by whichever side has
+    fewer observations. Renaming a class cannot create an observation.
+
+    The second claim is real, and it is where the instinct is right. The
+    framing changes which metric the model should be judged on. Predicting
+    death is a RULE-IN tool: it answers "who needs escalation" and is judged
+    on positive predictive value. Predicting survival is a RULE-OUT tool: it
+    answers "who can safely be discharged" and is judged on negative
+    predictive value. Those are different clinical products built from
+    identical arithmetic.
+
+    And NPV is much the better of the two here, which is what makes the
+    reframe worth testing rather than dismissing: at the prevalence cut, PPV
+    is 0.38 while NPV is 0.83. One in 2.6 patients flagged high-risk actually
+    dies; 83% of those cleared do survive.
+
+    So does it give a usable tool? No, and the number is the answer. The best
+    miss rate achievable anywhere on the curve is 10.2%, at a cut that clears
+    98 patients -- 10.0% of the cohort. Roughly one in 10 patients the model
+    clears as low-risk dies within 180 days.
+
+    A rule-out instrument has to do far better than that. PERC and Wells for
+    pulmonary embolism are used precisely because they get the miss rate to
+    around 2%; a discharge rule that sends home one in 10 patients who then
+    die is not a tool, it is a liability. The reframe does not rescue the
+    model.
+
+    That is a more useful conclusion than it looks. "Try predicting the other
+    class" is a natural suggestion in any review, and it now has a number
+    attached rather than a shrug. The model is not accurate enough to rule in
+    or to rule out, and both halves of that sentence have been tested.
+==============================================================================

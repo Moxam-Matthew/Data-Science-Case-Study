@@ -85,7 +85,6 @@ income_missing        1.27        1.19              23.5                 28.0   
 FIGURES
 ==============================================================================
   wrote output\figures\16_effect_translation.png
-
 ANSWERS
 ==============================================================================
 
@@ -94,8 +93,8 @@ A31. WAS THE COHORT EVER BIG ENOUGH?
 
     EPV asks whether coefficients are estimable at all. Riley's criteria ask
     whether the model will be usefully PRECISE, and they answer with three
-    separate requirements. Here the binding one is "shrinkage <= 10%", demanding
-    2,465 patients against the 978 available -- a shortfall of
+    separate requirements. Here the binding one is "shrinkage <= 10%",
+    demanding 2,465 patients against the 978 available -- a shortfall of
     1,487.
 
     Two things follow, and the second is more interesting than the first.
@@ -106,112 +105,110 @@ A31. WAS THE COHORT EVER BIG ENOUGH?
     the sample size before a single model is fitted. Penalisation was not a
     lucky guess, it was mandatory.
 
-    The second is that EPV would have given a friendlier and less useful answer.
-    At this prevalence the 10-EPV rule asks for about 1,538 patients, which
-    this cohort nearly meets. Riley asks for roughly 1.6x that. The rule of
-    thumb passed a model the modern criteria fail -- which is why quoting EPV
-    alone, as this project did until now, understates the problem.
+    The second is that EPV would have given a friendlier and less useful
+    answer. At this prevalence the 10-EPV rule asks for about 1,538 patients,
+    which this cohort nearly meets. Riley asks for roughly 1.6x that. The rule
+    of thumb passed a model the modern criteria fail -- which is why quoting
+    EPV alone, as this project did until now, understates the problem.
 
     What it does NOT mean is that the analysis is void. It means the model
-    should be presented as underpowered for individual risk estimation, that its
-    coefficients carry more uncertainty than their intervals suggest, and that
-    external validation on a larger cohort is a requirement rather than a nicety.
-    Saying so unprompted is the difference between reporting a limitation and
-    being caught by one.
+    should be presented as underpowered for individual risk estimation, that
+    its coefficients carry more uncertainty than their intervals suggest, and
+    that external validation on a larger cohort is a requirement rather than a
+    nicety. Saying so unprompted is the difference between reporting a
+    limitation and being caught by one.
 
 A32. WHAT THE HOLDOUT CANNOT TELL YOU
-    A holdout answers: how does THIS fitted model do on rows it has not seen. It
-    is the right tool for a final, honest performance estimate, which is why 30%
-    of this cohort is still untouched.
+    A holdout answers: how does THIS fitted model do on rows it has not seen.
+    It is the right tool for a final, honest performance estimate, which is
+    why 30% of this cohort is still untouched.
 
-    It does not answer: how much does the FITTING PROCEDURE flatter itself. For
-    that you need Harrell's optimism correction -- fit on the full sample, then
-    for each of 100 bootstrap resamples refit from scratch and measure the
-    gap between how the refit scores on its own resample and how it scores on
-    the original data. That gap, averaged, is the optimism.
+    It does not answer: how much does the FITTING PROCEDURE flatter itself.
+    For that you need Harrell's optimism correction -- fit on the full sample,
+    then for each of 100 bootstrap resamples refit from scratch and measure
+    the gap between how the refit scores on its own resample and how it scores
+    on the original data. That gap, averaged, is the optimism.
 
     The results are worth reading side by side with 05_modelling.py. Apparent
-    AUC for the unpenalised model is 0.732, corrected to
-    0.677 -- an optimism of 0.055. The elastic net's
-    apparent 0.717 corrects to 0.673. The corrected figures
-    land close to the cross-validated ones, which is the reassurance you want:
-    two different resampling schemes agreeing that the apparent numbers are
-    inflated by roughly the same amount.
+    AUC for the unpenalised model is 0.732, corrected to 0.677 -- an optimism
+    of 0.055. The elastic net's apparent 0.717 corrects to 0.673. The
+    corrected figures land close to the cross-validated ones, which is the
+    reassurance you want: two different resampling schemes agreeing that the
+    apparent numbers are inflated by roughly the same amount.
 
     The `shrinkage_factor` column is the practical payoff. It is the mean
     calibration slope of bootstrap models scored on the original data, and it
     estimates the factor by which coefficients would need multiplying to stop
-    the model overfitting. For the unpenalised model it is 0.74 --
-    meaning roughly 26% of the fitted effect is noise. Riley's
-    criterion 1 targets no worse than 0.90, and A31 already showed this cohort
-    cannot deliver it.
+    the model overfitting. For the unpenalised model it is 0.74 -- meaning
+    roughly 26% of the fitted effect is noise. Riley's criterion 1 targets no
+    worse than 0.90, and A31 already showed this cohort cannot deliver it.
 
     Why include this when a holdout exists? Because they answer different
-    questions, and because the bootstrap uses every patient. With 978
-    training rows, spending 30% on a holdout is expensive; the optimism
-    correction is what lets you say something honest about a model fitted on all
-    of them. In a report you would present both.
+    questions, and because the bootstrap uses every patient. With 978 training
+    rows, spending 30% on a holdout is expensive; the optimism correction is
+    what lets you say something honest about a model fitted on all of them. In
+    a report you would present both.
 
 A33. THE RIGHT COMPARISON
     Physician alone reaches AUC 0.655. The model alone reaches 0.681. Those
-    are the numbers people quote, and the implied question -- who wins -- is not
-    one anyone would act on, because no cardiology department proposes replacing
-    clinical judgement with a regression.
+    are the numbers people quote, and the implied question -- who wins -- is
+    not one anyone would act on, because no cardiology department proposes
+    replacing clinical judgement with a regression.
 
     The question that matters is whether the model adds anything GIVEN the
     clinician. Fit both together: AUC 0.716, a gain of +0.0610 over the
-    physician alone with interval [+0.0252, +0.1001], and a likelihood-ratio test of
-    chi2 = 35.3 on 1 df, p = <0.001.
+    physician alone with interval [+0.0252, +0.1001], and a likelihood-ratio
+    test of chi2 = 35.3 on 1 df, p = <0.001.
 
-    The gain is real: the interval excludes zero and the likelihood-ratio test rejects the physician-only model. The measured variables carry information the clinician's estimate does not.
+    The gain is real: the interval excludes zero and the likelihood-ratio test
+    rejects the physician-only model. The measured variables carry information
+    the clinician's estimate does not.
 
     Note what the combined model does to each term. The physician's estimate
     keeps a coefficient of +0.385 (p = <0.001) and the model's linear
-    predictor +1.006 (p = <0.001). Neither drives the other out. They
-    are carrying partly different information -- which is the clinically
-    sensible result, since the physician saw the patient and the model saw the
-    chart.
+    predictor +1.006 (p = <0.001). Neither drives the other out. They are
+    carrying partly different information -- which is the clinically sensible
+    result, since the physician saw the patient and the model saw the chart.
 
-    This is the analysis a cardiology journal asks for and the one an interview
-    answer usually skips. "My model beat the doctor" invites a fight about
-    whether the comparison was fair. "My model adds measurable information to
-    what the doctor already knows, and here is the test" invites a collaboration.
+    This is the analysis a cardiology journal asks for and the one an
+    interview answer usually skips. "My model beat the doctor" invites a fight
+    about whether the comparison was fair. "My model adds measurable
+    information to what the doctor already knows, and here is the test"
+    invites a collaboration.
 
 A34. WHY THE ODDS RATIO OVERSTATES THE CASE
     An odds ratio approximates a risk ratio only when the outcome is rare,
     conventionally under about 10%. This outcome runs at 25.4%, so the
-    approximation fails and it fails in one direction: the OR is always further
-    from 1 than the RR.
+    approximation fails and it fails in one direction: the OR is always
+    further from 1 than the RR.
 
-    The largest effect here is scoma, OR 1.81. Converted at this
-    baseline risk (Zhang & Yu, JAMA 1998) the risk ratio is 1.50 -- the odds
-    ratio overstates the relative increase by 1.6x. A clinician
-    hearing "OR 1.81" and thinking "81% more likely to die" has been misled by a
-    factor of nearly two, and it is the analyst's job to prevent that, not the
+    The largest effect here is scoma, OR 1.81. Converted at this baseline risk
+    (Zhang & Yu, JAMA 1998) the risk ratio is 1.50 -- the odds ratio
+    overstates the relative increase by 1.6x. A clinician hearing "OR 1.81"
+    and thinking "81% more likely to die" has been misled by a factor of
+    nearly two, and it is the analyst's job to prevent that, not the
     clinician's job to remember the conversion.
 
     What to report instead, in ascending order of usefulness:
 
       * the odds ratio with its interval, because that is what the model
-        estimates and what a methods reviewer will check;
-      * the risk ratio at a stated baseline risk, because that is what the
-        sentence "more likely" actually means;
-      * the ABSOLUTE risk, because that is what a patient can act on. A 1 SD
-        change in scoma moves 180-day risk from 23.5% to 35.8%, a
-        difference of +12.3 percentage points.
+        estimates and what a methods reviewer will check; * the risk ratio at
+        a stated baseline risk, because that is what the sentence "more
+        likely" actually means; * the ABSOLUTE risk, because that is what a
+        patient can act on. A 1 SD change in scoma moves 180-day risk from
+        23.5% to 35.8%, a difference of +12.3 percentage points.
 
-    Absolute risk is the one that survives translation to a bedside. "Your risk
-    goes from 25 in 100 to 33 in 100" is a sentence a patient can weigh; "your
-    odds ratio is 1.81" is not a sentence at all.
+    Absolute risk is the one that survives translation to a bedside. "Your
+    risk goes from 25 in 100 to 33 in 100" is a sentence a patient can weigh;
+    "your odds ratio is 1.81" is not a sentence at all.
 
-    A related discipline this project has followed by omission and should state
-    explicitly: NO OVERSAMPLING. The reflex for a 25% outcome is SMOTE or class
-    weighting, and both distort predicted probabilities -- which is the entire
-    quantity of interest here. A model trained on a synthetically rebalanced
-    cohort predicts risks for a population that does not exist, and its
-    calibration is destroyed by construction. Clinical prediction methodologists
-    discourage it for exactly this reason. If a decision threshold is needed,
-    move the threshold; do not move the data. Knowing why not to use SMOTE is
-    worth more than knowing how.
+    A related discipline this project has followed by omission and should
+    state explicitly: NO OVERSAMPLING. The reflex for a 25% outcome is SMOTE
+    or class weighting, and both distort predicted probabilities -- which is
+    the entire quantity of interest here. A model trained on a synthetically
+    rebalanced cohort predicts risks for a population that does not exist, and
+    its calibration is destroyed by construction. Clinical prediction
+    methodologists discourage it for exactly this reason. If a decision
+    threshold is needed, move the threshold; do not move the data. Knowing why
+    not to use SMOTE is worth more than knowing how.
 ==============================================================================
-

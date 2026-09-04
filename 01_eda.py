@@ -51,6 +51,7 @@ from report import (
     fmt_p,
     header,
     question,
+    render_answers,
     run_and_capture,
 )
 from stats_utils import add_fdr, followup_summary
@@ -669,7 +670,7 @@ def main() -> None:
                  figure_km(df, comparison)):
         print(f"  wrote {path.relative_to(Path(__file__).resolve().parent)}")
 
-    print(ANSWERS.format(rule=RULE, **facts))
+    print(render_answers(ANSWERS, dict(facts, rule=RULE)))
 
 
 if __name__ == "__main__":

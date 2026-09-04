@@ -1,7 +1,8 @@
-# Data is NOT committed. The pipeline downloads it (see src/data.py).
-# This habit is deliberate: MIMIC-IV's data use agreement prohibits
-# redistributing row-level records, so the project is built that way
-# from the first commit rather than retrofitted later.
+# Data is NOT committed. The loader in src/support2.py reads a local copy if
+# one is present and otherwise fetches from UCI.
+# This is deliberate rather than incidental: most clinical data use agreements
+# prohibit redistributing row-level records, so the project is built to that
+# standard from the first commit instead of being retrofitted later.
 data/
 *.csv
 *.zip

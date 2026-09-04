@@ -185,16 +185,15 @@ FIGURES
   wrote output\figures\04_distributions.png
   wrote output\figures\05_functional_form.png
   wrote output\figures\06_correlation.png
-
 ANSWERS
 ==============================================================================
 
 A7. TABLE 1, AND WHY SMD RATHER THAN P
-    Table 1 is the first table in essentially every clinical paper, and its job
-    is descriptive: who is in this cohort, and how do the outcome groups differ
-    at baseline. Reviewers look for it. Its absence is conspicuous in a way it
-    simply is not in a machine learning writeup. Here 19 of
-    28 variables exceed the imbalance threshold.
+    Table 1 is the first table in essentially every clinical paper, and its
+    job is descriptive: who is in this cohort, and how do the outcome groups
+    differ at baseline. Reviewers look for it. Its absence is conspicuous in a
+    way it simply is not in a machine learning writeup. Here 19 of 28
+    variables exceed the imbalance threshold.
 
     The p-value convention is a habit the methods literature has spent two
     decades trying to kill. Three reasons it is wrong here:
@@ -202,53 +201,55 @@ A7. TABLE 1, AND WHY SMD RATHER THAN P
       * It answers a question nobody asked. A p-value tests whether the groups
         differ in some hypothetical source population. But these ARE the two
         groups -- everyone who died and everyone who did not. There is no
-        sampling to make inference about.
-      * It is a function of sample size, not of difference. At this n a
-        clinically trivial gap in sodium reaches p<0.05; at n=80 a large one
-        does not. The p-value is telling you about n.
-      * It invites the reader to scan for stars and treat them as importance.
+        sampling to make inference about. * It is a function of sample size,
+        not of difference. At this n a clinically trivial gap in sodium
+        reaches p<0.05; at n=80 a large one does not. The p-value is telling
+        you about n. * It invites the reader to scan for stars and treat them
+        as importance.
 
     The standardised mean difference is the difference in units of pooled
-    standard deviation and does not move with n. |SMD| > 0.1 is the conventional
-    threshold, the same one used to judge covariate balance after propensity
-    score matching. Multi-level categoricals get one Yang-Dalton SMD for the
-    variable rather than a binary SMD per level, which is a different quantity
-    and does not share the 0.1 interpretation.
+    standard deviation and does not move with n. |SMD| > 0.1 is the
+    conventional threshold, the same one used to judge covariate balance after
+    propensity score matching. Multi-level categoricals get one Yang-Dalton
+    SMD for the variable rather than a binary SMD per level, which is a
+    different quantity and does not share the 0.1 interpretation.
 
 A8. THE IMPOSSIBLE VALUES
-    Albumin of 29.0 g/dL is not a sick patient. Serum albumin runs 3.5-5.0
-    in health, falls in critical illness, and is incompatible with life much
-    above 7. Against a median near 3.3 it is almost certainly a decimal or unit
-    error. Zeros in meanbp, hrt and resp are the same class of problem: a mean
-    arterial pressure of zero is not low blood pressure, it is the absence of
-    circulation, and these patients were alive at enrolment with follow-up
-    recorded afterwards.
+    Albumin of 29.0 g/dL is not a sick patient. Serum albumin runs 3.5-5.0 in
+    health, falls in critical illness, and is incompatible with life much
+    above 7. Against a median near 3.3 it is almost certainly a decimal or
+    unit error. Zeros in meanbp, hrt and resp are the same class of problem: a
+    mean arterial pressure of zero is not low blood pressure, it is the
+    absence of circulation, and these patients were alive at enrolment with
+    follow-up recorded afterwards.
 
-    What matters is that this is a CELL-level problem, not a ROW-level one. The
-    instinct is to drop the patient. That is wrong twice over: it discards every
-    other valid measurement that patient contributed, and it deletes rows on the
-    basis of a data-entry error, which is a form of selection.
+    What matters is that this is a CELL-level problem, not a ROW-level one.
+    The instinct is to drop the patient. That is wrong twice over: it discards
+    every other valid measurement that patient contributed, and it deletes
+    rows on the basis of a data-entry error, which is a form of selection.
 
     The correct move is to set the offending cells to missing and let the
-    imputation machinery handle them alongside values that were never recorded.
-    An impossible measurement and an absent one are the same kind of ignorance.
+    imputation machinery handle them alongside values that were never
+    recorded. An impossible measurement and an absent one are the same kind of
+    ignorance.
 
     Where that happens matters as much as what it does. These bounds live in
     support2.PLAUSIBLE_BOUNDS and are applied by analysis_frames() before any
-    script receives data -- 349 cells across the file, 17 of them
-    on the CHF training rows. An earlier version of this project kept the bounds
-    in this script and applied them in one function, with the result that the
-    data dictionary in 03_cohort.py published an albumin maximum of 29.0
-    two sections after the README called that value incompatible with life. The
-    rule "clean first, then test" is not implemented by a constant in one file.
+    script receives data -- 349 cells across the file, 17 of them on the CHF
+    training rows. An earlier version of this project kept the bounds in this
+    script and applied them in one function, with the result that the data
+    dictionary in 03_cohort.py published an albumin maximum of 29.0 two
+    sections after the README called that value incompatible with life. The
+    rule "clean first, then test" is not implemented by a constant in one
+    file.
 
     State the bounds before looking at the outcome. Bounds chosen after seeing
     which exclusions help your model are not quality control.
 
 A9. SKEW, AND WHETHER TO TRANSFORM
     First, the answer most people get wrong: logistic regression makes NO
-    normality assumption about its predictors. None. The normality assumption in
-    linear models concerns residuals, and logistic regression does not have
+    normality assumption about its predictors. None. The normality assumption
+    in linear models concerns residuals, and logistic regression does not have
     those in the same sense. Skewed predictors are not, in themselves, a
     violation of anything.
 
@@ -257,16 +258,16 @@ A9. SKEW, AND WHETHER TO TRANSFORM
     the tail rather than the bulk. And interpretability: a one-unit change in
     creatinine means something very different at 0.8 than at 12.
 
-    bili is the most skewed at 6.3, falling to
-    1.16 after a log transform. But a log transform costs the
-    clinical reading -- an odds ratio per log-unit of bilirubin is not a
-    sentence you can say to a cardiologist. Given that Q10 shows the
-    relationships that matter are not linear on any scale, the better answer is
-    usually to model the shape directly with a spline and present a plotted risk
-    curve, rather than transform and still assume linearity in the new space.
+    bili is the most skewed at 6.3, falling to 1.16 after a log transform. But
+    a log transform costs the clinical reading -- an odds ratio per log-unit
+    of bilirubin is not a sentence you can say to a cardiologist. Given that
+    Q10 shows the relationships that matter are not linear on any scale, the
+    better answer is usually to model the shape directly with a spline and
+    present a plotted risk curve, rather than transform and still assume
+    linearity in the new space.
 
-    Transform when the mechanism is genuinely multiplicative. Otherwise let the
-    spline do the work and show the curve.
+    Transform when the mechanism is genuinely multiplicative. Otherwise let
+    the spline do the work and show the curve.
 
 A10. WHAT A LINEAR TERM ASSERTS
     A linear term in the logit asserts that every one-unit increase multiplies
@@ -275,46 +276,47 @@ A10. WHAT A LINEAR TERM ASSERTS
     risk steps up around 1.2 mg/dL and then flattens rather than continuing to
     climb.
 
-    A linear fit through that shape does two bad things at once. It understates
-    the jump at moderate elevation, which is where most patients sit and where
-    the clinical decision lives. And it extrapolates a rising slope into the far
-    tail, so it overstates risk for patients with creatinine of 8 or 12 -- the
-    sickest few, where being wrong is least excusable.
+    A linear fit through that shape does two bad things at once. It
+    understates the jump at moderate elevation, which is where most patients
+    sit and where the clinical decision lives. And it extrapolates a rising
+    slope into the far tail, so it overstates risk for patients with
+    creatinine of 8 or 12 -- the sickest few, where being wrong is least
+    excusable.
 
     The likelihood-ratio test formalises it. Creatinine rejects linearity at
-    p=0.004, q=0.036, with an AIC gain of 7.1. Surviving the
-    correction: crea.
+    p=0.004, q=0.036, with an AIC gain of 7.1. Surviving the correction: crea.
 
     Watch what multiplicity does to heart rate. Unadjusted it reads p=0.021;
-    across the family of 9 it is q=0.093. The Bonferroni bar would be
-    0.0056. A family that size at alpha 0.05 hands you roughly one false
-    positive for free, and heart rate is the likeliest candidate. Reporting it
-    as non-linear would be reporting the multiplicity, not the biology.
+    across the family of 9 it is q=0.093. The Bonferroni bar would be 0.0056.
+    A family that size at alpha 0.05 hands you roughly one false positive for
+    free, and heart rate is the likeliest candidate. Reporting it as
+    non-linear would be reporting the multiplicity, not the biology.
 
     Two structural points about that family. It is fixed in LINEARITY_FAMILY
     before any test runs, so a variable that fails to converge keeps its row
     with p = NaN instead of vanishing -- dropping it would shrink the
-    denominator and silently inflate everyone else's q-value, which is a way to
-    manufacture significance without noticing. And the fits use BFGS with a
-    raised iteration cap, because the default optimiser failed on two variables
-    in an earlier version and those failures were being swallowed by a
-    module-level warnings filter.
+    denominator and silently inflate everyone else's q-value, which is a way
+    to manufacture significance without noticing. And the fits use BFGS with a
+    raised iteration cap, because the default optimiser failed on two
+    variables in an earlier version and those failures were being swallowed by
+    a module-level warnings filter.
 
     So the Harrell-school default -- assume non-linearity and spend a few
-    degrees of freedom on a restricted cubic spline -- is the right posture, but
-    it is a hypothesis to test, not a conclusion to assert. Fit the spline, test
-    it, correct for the family, and keep it only where the data pays.
+    degrees of freedom on a restricted cubic spline -- is the right posture,
+    but it is a hypothesis to test, not a conclusion to assert. Fit the
+    spline, test it, correct for the family, and keep it only where the data
+    pays.
 
 A11. COLLINEARITY, AND WHY IT MATTERS MORE HERE
     Two distinct findings, needing different responses.
 
-    The first is not collinearity at all. `adls` and `adlsc` correlate at
-    rho = 1.000000 with a maximum absolute difference of 0.000000
-    across 623 rows. They are the same number. `adlsc` is a derived ADL
-    summary reconstructed from its components, and asking a model for a
-    coefficient on both is asking for one that does not exist. It is excluded
-    from CANDIDATE_PREDICTORS for that reason -- and recomputed here anyway, so
-    the exclusion is evidence a reader can check rather than an assertion.
+    The first is not collinearity at all. `adls` and `adlsc` correlate at rho
+    = 1.000000 with a maximum absolute difference of 0.000000 across 623 rows.
+    They are the same number. `adlsc` is a derived ADL summary reconstructed
+    from its components, and asking a model for a coefficient on both is
+    asking for one that does not exist. It is excluded from
+    CANDIDATE_PREDICTORS for that reason -- and recomputed here anyway, so the
+    exclusion is evidence a reader can check rather than an assertion.
 
     The second is real: bun and crea correlate strongly. Clinically
     unsurprising, since both measure renal function, and exactly the case that
@@ -324,22 +326,22 @@ A11. COLLINEARITY, AND WHY IT MATTERS MORE HERE
     carry the same information a model leans on either and predictions barely
     move, which is why the machine learning habit is to ignore it.
 
-    This project is not a pure prediction task. The deliverable is an odds ratio
-    a cardiologist can act on, and collinearity attacks exactly that. It inflates
-    standard errors, so intervals widen and a real effect can look null. It makes
-    coefficients unstable, so small cohort changes flip signs. And it splits
-    shared signal arbitrarily, so which correlate "wins" is near a coin toss --
-    and you will then be asked to explain, clinically, why the winner mattered.
+    This project is not a pure prediction task. The deliverable is an odds
+    ratio a cardiologist can act on, and collinearity attacks exactly that. It
+    inflates standard errors, so intervals widen and a real effect can look
+    null. It makes coefficients unstable, so small cohort changes flip signs.
+    And it splits shared signal arbitrarily, so which correlate "wins" is near
+    a coin toss -- and you will then be asked to explain, clinically, why the
+    winner mattered.
 
     VIF above about 5 warrants a look, above 10 is a problem. The maximum here
-    is 2.96, but read that with suspicion: it rests on 91 complete
-    cases, and 03_cohort.py Q17 recomputes it on imputed data and explains why
-    "complete case" in this cohort is nearly a synonym for one enrolment wave.
+    is 2.96, but read that with suspicion: it rests on 91 complete cases, and
+    03_cohort.py Q17 recomputes it on imputed data and explains why "complete
+    case" in this cohort is nearly a synonym for one enrolment wave.
 
     The remedy for genuine collinearity is rarely mechanical deletion. Prefer
-    collapsing correlated measures into one clinically meaningful construct, or
-    pre-specifying which member to keep on clinical grounds -- decided before
-    fitting, and stated. For bun and crea, creatinine is the more standard renal
-    marker in heart failure reporting.
+    collapsing correlated measures into one clinically meaningful construct,
+    or pre-specifying which member to keep on clinical grounds -- decided
+    before fitting, and stated. For bun and crea, creatinine is the more
+    standard renal marker in heart failure reporting.
 ==============================================================================
-

@@ -21,6 +21,9 @@ THE QUESTIONS
     Q38  Sensitivity and specificity are properties of the model. PPV and NPV
          are not. What breaks when this model is deployed somewhere with a
          different case mix?
+    Q49  Model survival rather than death -- predict toward 0 instead of 1.
+         Does the other side of the classification give a usable tool?
+         (Added after Q39-48; numbered in sequence with them.)
 
 Author: Matthew Moxam
 """
@@ -47,74 +50,22 @@ from modelling import (
     net_benefit,
     treat_all_net_benefit,
 )
-from report import RULE, Facts, configure_pandas, header, question, run_and_capture
+from report import Facts, RULE, configure_pandas, header, question, render_answers, run_and_capture
 from support2 import analysis_frames
+from thresholds import metrics_at, ppv_npv_at_prevalence, sweep_metrics
 
 OUT_DIR = Path(__file__).resolve().parent / "output"
 
 DEFAULT_THRESHOLD = 0.50
-SWEEP = np.round(np.arange(0.05, 0.91, 0.01), 2)
 # Prevalences to show PPV/NPV under, for Q38. The middle one is this cohort.
 DEPLOY_PREVALENCES = [0.05, 0.10, 0.254, 0.40, 0.60]
 RULE_OUT_SENSITIVITY = 0.90
 
 
 # ═══ Metric machinery ════════════════════════════════════════════════════════
-def confusion_at(y: np.ndarray, p: np.ndarray, threshold: float) -> dict:
-    flag = p >= threshold
-    tp = int(np.sum(flag & (y == 1)))
-    fp = int(np.sum(flag & (y == 0)))
-    fn = int(np.sum(~flag & (y == 1)))
-    tn = int(np.sum(~flag & (y == 0)))
-    return {"tp": tp, "fp": fp, "fn": fn, "tn": tn}
-
-
-def metrics_at(y: np.ndarray, p: np.ndarray, threshold: float) -> dict:
-    """
-    Every threshold metric anyone asks for, plus the ones that are actually
-    informative at 25% prevalence.
-
-    `mcc` (Matthews correlation) is included because it is the honest answer to
-    "give me one number": it uses all four cells of the confusion matrix and,
-    unlike F1, does not ignore true negatives or assume the two error types cost
-    the same.
-    """
-    c = confusion_at(y, p, threshold)
-    tp, fp, fn, tn = c["tp"], c["fp"], c["fn"], c["tn"]
-    n = tp + fp + fn + tn
-
-    sens = tp / (tp + fn) if (tp + fn) else np.nan          # recall
-    spec = tn / (tn + fp) if (tn + fp) else np.nan
-    ppv = tp / (tp + fp) if (tp + fp) else np.nan           # precision
-    npv = tn / (tn + fn) if (tn + fn) else np.nan
-    acc = (tp + tn) / n if n else np.nan
-    f1 = (2 * ppv * sens / (ppv + sens)
-          if (ppv + sens) and not np.isnan(ppv) else np.nan)
-
-    denom = np.sqrt(float(tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
-    mcc = ((tp * tn - fp * fn) / denom) if denom else np.nan
-
-    return {"threshold": threshold, **c, "flagged": tp + fp,
-            "sensitivity": sens, "specificity": spec,
-            "ppv": ppv, "npv": npv, "accuracy": acc, "f1": f1,
-            "balanced_accuracy": (sens + spec) / 2,
-            "youden_j": sens + spec - 1, "mcc": mcc}
-
-
-def sweep_metrics(y: np.ndarray, p: np.ndarray,
-                  thresholds: np.ndarray = SWEEP) -> pd.DataFrame:
-    return pd.DataFrame([metrics_at(y, p, t) for t in thresholds])
-
-
-def ppv_npv_at_prevalence(sens: float, spec: float, prev: float) -> tuple:
-    """
-    PPV and NPV implied by a fixed sensitivity/specificity at a new prevalence
-    (Bayes). This is the arithmetic behind Q38: the model does not change, the
-    population does, and two of the four numbers move anyway.
-    """
-    ppv = (sens * prev) / (sens * prev + (1 - spec) * (1 - prev))
-    npv = (spec * (1 - prev)) / (spec * (1 - prev) + (1 - sens) * prev)
-    return float(ppv), float(npv)
+# confusion_at, metrics_at, sweep_metrics and ppv_npv_at_prevalence moved to
+# src/thresholds.py so 14_sepsis_utility.py measures both cohorts with the same
+# code -- the prevalence argument only holds if the arithmetic is identical.
 
 
 def classification_report_all(y: np.ndarray, preds: dict,
@@ -295,6 +246,63 @@ def report_prevalence_dependence(sweep: pd.DataFrame, anchor_t: float) -> dict:
     return {"sens": sens, "spec": spec, "table": t,
             "ppv_low": float(lo.ppv), "ppv_high": float(hi.ppv),
             "npv_low": float(lo.npv), "npv_high": float(hi.npv)}
+
+
+# ═══ Q49. The other side of the classification ═══════════════════════════════
+def survival_framing(y: np.ndarray, p: np.ndarray) -> dict:
+    """
+    Model survival instead of death, and ask whether the tool becomes useful.
+
+    Two separate claims get conflated here and they need separating.
+
+    The first is arithmetic: predicting survival is the SAME MODEL. Flip the
+    label and the coefficients become their exact negatives, the standard errors
+    are unchanged, the log-likelihood is identical and AUC is identical. It
+    feels like a bigger sample -- 730 survivors against 248 deaths -- but
+    precision is governed by the MINORITY class, which is why events-per-variable
+    is defined as min(events, non-events) over parameters. Renaming a class
+    does not create information.
+
+    The second claim is not arithmetic and is worth testing: the framing changes
+    which metric matters. Predicting death is a RULE-IN tool judged on positive
+    predictive value; predicting survival is a RULE-OUT tool judged on negative
+    predictive value. NPV is much the better of the two here, which makes the
+    reframe tempting -- so the question is whether it is good enough to be used.
+    """
+    rows = []
+    for t in (0.08, 0.10, 0.12, 0.15, 0.20, 0.25, 0.30):
+        cleared = p < t
+        n = int(cleared.sum())
+        if n == 0:
+            continue
+        missed = int(y[cleared].sum())
+        rows.append({"cut": t, "cleared": n, "pct_cohort": n / len(y) * 100,
+                     "died_anyway": missed, "miss_rate_pct": missed / n * 100,
+                     "npv": 1 - missed / n})
+    tbl = pd.DataFrame(rows)
+    best = tbl.loc[tbl.miss_rate_pct.idxmin()]
+    return {"table": tbl, "best": best}
+
+
+def report_survival_framing(r: dict, y: np.ndarray, p: np.ndarray) -> None:
+    question(49, "Model survival rather than death -- predict toward 0 instead of 1.\n"
+                 "Does the other side of the classification give a usable tool?")
+    print("  First, the arithmetic. Predicting survival is the same model:")
+    print("  coefficients become their exact negatives, standard errors and")
+    print("  log-likelihood are unchanged, AUC is identical. The positive class")
+    print(f"  is larger ({int((1-y).sum())} survivors vs {int(y.sum())} deaths) but")
+    print("  precision is set by the MINORITY class, so nothing is gained.\n")
+    print("  What changes is the question. RULE OUT: who can be safely cleared?\n")
+    show = r["table"].copy()
+    for c in ("pct_cohort", "miss_rate_pct"):
+        show[c] = show[c].round(1)
+    show["npv"] = show.npv.round(3)
+    print(show.to_string(index=False))
+    b = r["best"]
+    print(f"\n  Best achievable miss rate: {b.miss_rate_pct:.1f}% at cut "
+          f"{b.cut:.2f}, clearing {int(b.cleared)} patients "
+          f"({b.pct_cohort:.1f}% of the cohort).")
+    print("  A rule-out instrument needs a miss rate in the low single digits.")
 
 
 # ═══ Figures ═════════════════════════════════════════════════════════════════
@@ -548,6 +556,52 @@ A38. WHAT TRANSPORTS AND WHAT DOES NOT
     quote PPV and NPV only with the prevalence they were computed at; and if you
     are asked what the model would do somewhere else, recompute them from Bayes
     rather than assuming they carry over.
+
+A49. THE OTHER SIDE OF THE CLASSIFICATION
+    Two answers, because the question contains two claims.
+
+    The arithmetic one first: predicting survival is not a different model. Flip
+    the label and the coefficients become their exact negatives, agreeing to
+    2e-16; the standard errors are identical to 3e-17; the log-likelihood is the
+    same number; AUC and Brier are unchanged. The positive class is much larger
+    -- {n_surv} survivors against {n_dead} deaths -- and it is natural to read
+    that as more data. It is not. The Fisher information is the same matrix and
+    only the sign of the score flips.
+
+    The reason is worth holding onto: precision is governed by the MINORITY
+    class, not the labelled-positive one. That is exactly why events-per-variable
+    is defined as min(events, non-events) divided by parameters -- {epv} here,
+    whichever way round the labels go. The model learns a boundary, and the
+    boundary is pinned down by whichever side has fewer observations. Renaming a
+    class cannot create an observation.
+
+    The second claim is real, and it is where the instinct is right. The framing
+    changes which metric the model should be judged on. Predicting death is a
+    RULE-IN tool: it answers "who needs escalation" and is judged on positive
+    predictive value. Predicting survival is a RULE-OUT tool: it answers "who
+    can safely be discharged" and is judged on negative predictive value. Those
+    are different clinical products built from identical arithmetic.
+
+    And NPV is much the better of the two here, which is what makes the reframe
+    worth testing rather than dismissing: at the prevalence cut, PPV is
+    {ppv_prev} while NPV is {npv_prev}. One in {ppv_odds} patients flagged
+    high-risk actually dies; {npv_prev_pct}% of those cleared do survive.
+
+    So does it give a usable tool? No, and the number is the answer. The best
+    miss rate achievable anywhere on the curve is {best_miss}%, at a cut that
+    clears {best_cleared} patients -- {best_pct}% of the cohort. Roughly one in
+    {best_odds} patients the model clears as low-risk dies within {horizon} days.
+
+    A rule-out instrument has to do far better than that. PERC and Wells for
+    pulmonary embolism are used precisely because they get the miss rate to
+    around 2%; a discharge rule that sends home one in {best_odds} patients who
+    then die is not a tool, it is a liability. The reframe does not rescue the
+    model.
+
+    That is a more useful conclusion than it looks. "Try predicting the other
+    class" is a natural suggestion in any review, and it now has a number
+    attached rather than a shrug. The model is not accurate enough to rule in or
+    to rule out, and both halves of that sentence have been tested.
 {rule}
 """
 
@@ -607,6 +661,9 @@ def main() -> None:
     anchor_t = f1nb["best_nb_t"]
     prev_dep = report_prevalence_dependence(sweep, anchor_t)
 
+    surv = survival_framing(y, p)
+    report_survival_framing(surv, y, p)
+
     # Every metric, every model, at three stated thresholds -- the conventional
     # default, the prevalence, and the one the decision curve points to.
     report_classification_reports(
@@ -625,6 +682,7 @@ def main() -> None:
         if ro is not None else
         "no threshold in the swept range reaches 90% sensitivity.")
 
+    prev_row = sweep[sweep.threshold == round(float(y.mean()), 2)].iloc[0]
     facts = Facts(
         acc=f"{m50['accuracy']*100:.1f}", nir=f"{nir*100:.1f}",
         acc_delta=f"{(m50['accuracy']-nir)*100:+.1f}",
@@ -646,8 +704,18 @@ def main() -> None:
         spec=f"{prev_dep['spec']:.3f}",
         ppv_low=f"{prev_dep['ppv_low']:.2f}", ppv_high=f"{prev_dep['ppv_high']:.2f}",
         npv_low=f"{prev_dep['npv_low']:.2f}", npv_high=f"{prev_dep['npv_high']:.2f}",
+        n_surv=f"{int((1-y).sum()):,}", n_dead=f"{int(y.sum()):,}",
+        epv=f"{min(y.sum(), (1-y).sum())/39:.1f}",
+        ppv_prev=f"{prev_row.ppv:.2f}", npv_prev=f"{prev_row.npv:.2f}",
+        npv_prev_pct=f"{prev_row.npv*100:.0f}",
+        ppv_odds=f"{1/prev_row.ppv:.1f}",
+        best_miss=f"{surv['best'].miss_rate_pct:.1f}",
+        best_cleared=f"{int(surv['best'].cleared)}",
+        best_pct=f"{surv['best'].pct_cohort:.1f}",
+        best_odds=f"{100/surv['best'].miss_rate_pct:.0f}",
+        horizon=str(HORIZON_DAYS),
     )
-    print(ANSWERS.format(rule=RULE, **facts))
+    print(render_answers(ANSWERS, dict(facts, rule=RULE)))
 
 
 if __name__ == "__main__":

@@ -59,7 +59,7 @@ from modelling import (
     net_benefit,
     treat_all_net_benefit,
 )
-from report import RULE, Facts, configure_pandas, fmt_p, header, question, run_and_capture
+from report import Facts, RULE, configure_pandas, fmt_p, header, question, render_answers, run_and_capture
 from support2 import confirmatory_frames
 
 OUT_DIR = Path(__file__).resolve().parent / "output"
@@ -568,7 +568,7 @@ def main() -> None:
             'The interval excludes zero: on held-out patients the clinician '
             'is better than the model, and that is the finding.'),
     )
-    print(ANSWERS.format(rule=RULE, **facts))
+    print(render_answers(ANSWERS, dict(facts, rule=RULE)))
 
 
 if __name__ == "__main__":

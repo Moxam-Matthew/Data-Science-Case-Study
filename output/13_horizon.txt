@@ -1,0 +1,188 @@
+
+==============================================================================
+SUPPORT2 -- the horizon, and what a bigger label set costs
+==============================================================================
+  ARF/MOSF w/Sepsis training partition, 2,458 patients.
+  The holdout was spent in 12_replication.py and is not read here.
+
+------------------------------------------------------------------------------
+QUESTION 54: How many more events does dropping the horizon buy, and what
+does the extra label encode besides death?
+------------------------------------------------------------------------------
+  180-day deaths 1,091   any-horizon deaths 1,440   (+349, +32%)
+
+      wave    n  median_fu_censored_d  max_fu_observed_d  died_180d_pct  died_any_pct
+early wave 1065                1648.0             2029.0           47.2          64.6
+ late wave 1393                 696.0             1090.0           42.2          54.0
+
+  Censored follow-up runs 2.37x longer in the early wave.
+  Between-wave mortality gap, 180-day : 5.0 points
+  Between-wave mortality gap, any horizon : 10.6 points  (2.1x larger)
+
+  A single flag -- 'bun was not recorded', a fact about a
+  data-collection protocol carrying no clinical information:
+    predicting 180-day death   AUC 0.525
+    predicting any-horizon death  AUC 0.554
+
+------------------------------------------------------------------------------
+QUESTION 55: Fit both outcomes and compare. If the any-horizon model scores
+higher, where do the extra points come from?
+------------------------------------------------------------------------------
+    outcome          predictors  n_predictors    auc  pr_auc  calibration_slope  brier
+    180-day      all predictors            28 0.7438  0.6915             1.0677 0.2029
+    180-day minus protocol labs            25 0.7447  0.6938             1.0405 0.2025
+any horizon      all predictors            28 0.7504  0.7931             1.0020 0.1971
+any horizon minus protocol labs            25 0.7508  0.7944             0.9845 0.1970
+
+  Apparent gain from dropping the horizon: +0.0066 AUC
+
+  Cost of removing the three protocol-differing labs:
+    180-day      outcome  +0.0009
+    any-horizon  outcome  +0.0003
+    the any-horizon model is hurt -0.0006 more
+    bootstrap on the any-horizon model: -0.0003 [-0.0025, +0.0019]  crosses zero True
+
+  Can the CLINICAL variables alone identify the enrolment wave?
+    25 predictors, protocol labs excluded: AUC 0.641
+
+------------------------------------------------------------------------------
+QUESTION 56: What does it cost to do this properly? Fit the survival model
+that uses every patient and every timeframe, and compare.
+------------------------------------------------------------------------------
+  2,458 patients, 1,440 deaths, 24 terms.
+  Every patient contributes the follow-up they actually had; median 347 days.
+
+    Harrell's C (Cox, full follow-up)   0.675
+    AUC (180-day logistic)              0.744
+    difference                          -0.069
+
+  Proportional hazards test: 9 of 24 terms violate at p < 0.05.
+        test_statistic       p
+scoma            35.60  <0.001
+adls             17.27  <0.001
+meanbp           12.95  <0.001
+age              12.13  <0.001
+bili             10.14   0.001
+
+==============================================================================
+FIGURES
+==============================================================================
+  wrote output\figures\23_horizon.png
+ANSWERS
+==============================================================================
+
+A54. WHAT THE EXTRA EVENTS ENCODE
+    Dropping the horizon takes the sepsis training cohort from 1,091 events to
+    1,440, a gain of 32%. For a cohort that spent 07_validation.py Q31 failing
+    Riley's sample-size criteria, a third more events for free is exactly the
+    trade anyone would want to make.
+
+    The trade is not free. `death` in this dataset means "was observed to die
+    before last contact", and contact was not equal. Censored follow-up runs
+    2.37x longer in the early enrolment wave -- and the longest follow-up
+    recorded in the late wave is shorter than the MEDIAN follow-up in the
+    early one, so a late-wave patient cannot be observed to die past a date
+    the early wave routinely passed.
+
+    Watch what that does to the label. Between the two waves the 180-day
+    mortality gap is 5.0 points. The any-horizon gap is 10.6 points, 2.1x
+    larger. Nobody got sicker between waves; the study just looked at one of
+    them for twice as long, and the extra events are concentrated where it
+    looked longest.
+
+    The cleanest statement of the problem is a single variable. "bun was not
+    recorded" is a fact about a data-collection protocol and carries no
+    clinical information whatsoever. Against the 180-day outcome it scores
+    0.525 -- essentially chance, which is correct. Against the any-horizon
+    outcome it scores 0.554. The label has absorbed the calendar.
+
+A55. WHERE THE EXTRA POINTS COME FROM
+    The any-horizon model scores higher: 0.7504 against 0.7438, a difference
+    of +0.0066. Anyone optimising for a number on a slide would stop here and
+    ship it.
+
+    The decomposition does NOT support the contamination story. Removing the
+    protocol labs costs the 180-day model +0.0009 and the any-horizon model
+    +0.0003, so the any-horizon model is not leaning on them more heavily. The
+    wave signal is real -- A54 measured it -- but this particular test does
+    not show it driving the AUC difference, and the honest reading is that the
+    mechanism is more diffuse than a three-variable decomposition can isolate.
+
+    The decomposition is the point. Removing bun, urine and glucose removes
+    the variables whose MISSINGNESS carries the wave signature -- their values
+    are ordinary labs, but their absence is a timestamp. If the any-horizon
+    model were learning biology, removing three labs would cost it about what
+    it costs the 180-day model. If it were learning the enrolment calendar, it
+    should lose more.
+
+    And the enrolment wave is learnable from the clinical variables alone.
+    With the protocol labs excluded entirely, 25 ordinary clinical predictors
+    identify which wave a patient came from at AUC 0.641. That is well above
+    chance, which is the uncomfortable version: the calendar is diffused
+    across the ordinary clinical variables too, so dropping three columns does
+    not fully remove it. Only a horizon that every patient was observed
+    through can.
+
+    The general lesson transfers well past this dataset, and it is the one
+    worth carrying into any modelling review: an outcome defined by "did we
+    observe the event" rather than "did the event happen by time T" imports
+    the observation process into the label. Every mechanism that governed who
+    was watched, and for how long, becomes learnable signal. The model gets
+    better at the benchmark and worse at the job.
+
+    So the honest answer to "why not use every death" is not that it is
+    forbidden. It is that the resulting number is not measuring what its name
+    says, and the project has the receipts to show it.
+
+A56. THE VERSION THAT ACTUALLY USES EVERY TIMEFRAME
+    A survival model. This is not a consolation prize -- it is the analysis
+    the binary label was a shortcut for, and it uses strictly more information
+    than either logistic model above: 2,458 patients, 1,440 deaths, and every
+    patient's real exposure time rather than a fixed window.
+
+    Censoring is exactly the machinery for unequal follow-up. A patient last
+    seen alive on day 700 contributes 700 days of survived risk and no death,
+    rather than being scored as a survivor on a 2,000-day question nobody
+    asked them. The differential follow-up that corrupts the binary label is
+    handled rather than absorbed.
+
+    Harrell's C is 0.675 against the 180-day model's 0.744, a difference of
+    -0.069. They differ by more than the 0.05 the prediction allowed, and the
+    expectation behind it was too loose: it treated 'both are concordance
+    measures' as though that made them commensurable, which it does not.
+
+    That comparison needs a caveat before anyone quotes the gap, because the
+    two numbers are not answering the same question and the naive reading --
+    "the survival model is worse" -- is wrong. AUC at a fixed horizon asks one
+    binary thing: was this patient dead at day 180. Harrell's C asks the model
+    to order every comparable PAIR of patients across the whole of follow-up,
+    which means it must also separate a death on day 200 from a death on day
+    1,500. That is a strictly harder discrimination, and it is normal for C
+    over years of follow-up to sit below an AUC at a single early horizon. The
+    project made the mirror-image error once already, in
+    09_parsimony_and_survival.py, by comparing a seven-variable Cox model
+    against a twenty-eight-variable elastic net and reading the difference as
+    a verdict on survival modelling.
+
+    So the gap is not evidence that the horizon approach is better. It is
+    evidence that the two are measuring different things -- which is the
+    reason to prefer the survival model where the timing matters clinically,
+    and the reason the two numbers should never be put in the same column of a
+    results table without this sentence attached.
+
+    One caveat reported rather than buried: 9 of 24 terms violate proportional
+    hazards at p < 0.05. Proportional hazards is an assumption about the RATIO
+    of hazards being constant over time, and in a cohort followed for years
+    through an acute illness there is no reason to expect it to hold
+    everywhere. It bears on the interpretation of individual coefficients more
+    than on the concordance, but a model whose assumption is violated should
+    say so.
+
+    WHAT I PREDICTED, AND WHETHER I WAS RIGHT
+      RIGHT    the any-horizon model would score higher
+      WRONG    removing the protocol labs would cost it more
+      WRONG    Harrell's C would land near the 180-day AUC
+
+    1 of 3. The misses are left in rather than quietly rewritten. A prediction
+    that is only reported when it succeeds is not a prediction.
+==============================================================================

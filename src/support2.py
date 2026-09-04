@@ -135,6 +135,21 @@ SUPPORT_NORMAL_FILL = {
 }
 
 CHF_LABEL = "CHF"
+SEPSIS_LABEL = "ARF/MOSF w/Sepsis"
+
+# The disease groups this project analyses, and why each is here.
+#
+# CHF is the primary cohort: the clinical question is heart failure and the
+# audience is cardiology. SEPSIS is the replication cohort, chosen for
+# statistical power rather than clinical fit -- 2,458 training patients against
+# 978, and 1,091 events against 248, which lifts events-per-variable from 6.4 to
+# 28 and satisfies the Riley sample-size criteria the CHF cohort fails.
+#
+# A finding that holds in both is far stronger than one that holds in CHF alone.
+# "Penalised regression is not beaten by gradient boosting" is a weak claim at
+# EPV 6.4 -- that is precisely the regime where regularisation should win. At
+# EPV 28 it is a real result.
+COHORTS = {"chf": CHF_LABEL, "sepsis": SEPSIS_LABEL}
 
 # ── Physiologic plausibility ─────────────────────────────────────────────────
 # Bounds are declared here, before anything looks at an outcome, and applied by
@@ -333,16 +348,29 @@ def _download_from_uci() -> pd.DataFrame:
     return df
 
 
-def chf_cohort(df: pd.DataFrame) -> pd.DataFrame:
+def disease_cohort(df: pd.DataFrame, group: str = CHF_LABEL) -> pd.DataFrame:
     """
-    Restrict to the congestive heart failure disease group.
+    Restrict to one disease group.
 
-    Holding the disease group fixed is not merely a scoping choice -- it is the
+    Holding the disease fixed is not merely a scoping choice -- it is the
     control condition for the missingness analysis in 01_eda.py. Several
     variables look informatively missing across the full cohort purely because
     they track which service a patient was on.
     """
-    return df[df["dzgroup"] == CHF_LABEL].copy()
+    if group not in set(COHORTS.values()):
+        raise ValueError(f"unknown group {group!r}; expected one of "
+                         f"{sorted(set(COHORTS.values()))}")
+    return df[df["dzgroup"] == group].copy()
+
+
+def chf_cohort(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Restrict to congestive heart failure -- the project's primary cohort.
+
+    Kept as a named function because CHF is the default everywhere; use
+    disease_cohort() to select another group.
+    """
+    return disease_cohort(df, CHF_LABEL)
 
 
 def cohort_flow(df: pd.DataFrame) -> pd.DataFrame:
@@ -423,7 +451,14 @@ def model_predictors(df: pd.DataFrame) -> list[str]:
 
 
 class Cohort(NamedTuple):
-    """Everything a script may look at, assembled once by the same code path."""
+    """
+    Everything a script may look at, assembled once by the same code path.
+
+    `chf_train` keeps its name because CHF is the default and every existing
+    caller and test refers to it; with `group=SEPSIS_LABEL` it holds the sepsis
+    cohort instead. Renaming it would touch thirty call sites to no benefit, but
+    the name is a historical artefact rather than a description.
+    """
     raw: pd.DataFrame          # as loaded, uncleaned -- for Q8's before/after report
     full_train: pd.DataFrame   # all disease groups, cleaned, training partition
     chf_train: pd.DataFrame    # CHF only, cleaned, training partition
@@ -431,7 +466,8 @@ class Cohort(NamedTuple):
     n_test: int                # held out, never returned
 
 
-def analysis_frames(test_frac: float = 0.30, seed: int = 20260901) -> Cohort:
+def analysis_frames(test_frac: float = 0.30, seed: int = 20260901,
+                    group: str = CHF_LABEL) -> Cohort:
     """
     The single entry point for every analysis script.
 
@@ -449,7 +485,7 @@ def analysis_frames(test_frac: float = 0.30, seed: int = 20260901) -> Cohort:
     split = make_split(cleaned, test_frac=test_frac, seed=seed)
     full_train = cleaned[split == "train"].copy()
     return Cohort(raw=raw, full_train=full_train,
-                  chf_train=chf_cohort(full_train),
+                  chf_train=disease_cohort(full_train, group),
                   n_voided=n_voided, n_test=int((split == "test").sum()))
 
 
@@ -462,8 +498,8 @@ class ConfirmatoryCohort(NamedTuple):
     n_voided: int
 
 
-def confirmatory_frames(test_frac: float = 0.30, seed: int = 20260901
-                        ) -> ConfirmatoryCohort:
+def confirmatory_frames(test_frac: float = 0.30, seed: int = 20260901,
+                        group: str = CHF_LABEL) -> ConfirmatoryCohort:
     """
     Return BOTH partitions, including the held-out test set.
 
@@ -484,7 +520,8 @@ def confirmatory_frames(test_frac: float = 0.30, seed: int = 20260901
     split = make_split(cleaned, test_frac=test_frac, seed=seed)
     tr, te = cleaned[split == "train"].copy(), cleaned[split == "test"].copy()
     return ConfirmatoryCohort(full_train=tr, full_test=te,
-                              chf_train=chf_cohort(tr), chf_test=chf_cohort(te),
+                              chf_train=disease_cohort(tr, group),
+                              chf_test=disease_cohort(te, group),
                               n_voided=n_voided)
 
 

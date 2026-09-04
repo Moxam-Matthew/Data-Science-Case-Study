@@ -43,6 +43,7 @@ from report import (
     fmt_p,
     header,
     question,
+    render_answers,
     run_and_capture,
 )
 from stats_utils import add_fdr, smd_categorical, smd_continuous
@@ -632,7 +633,7 @@ def main() -> None:
         print(f"  wrote {path.relative_to(Path(__file__).resolve().parent)}")
 
     facts = collect_facts(t1, caught, dist, lin, coll, cohort.n_voided)
-    print(ANSWERS.format(rule=RULE, **facts))
+    print(render_answers(ANSWERS, dict(facts, rule=RULE)))
 
 
 if __name__ == "__main__":

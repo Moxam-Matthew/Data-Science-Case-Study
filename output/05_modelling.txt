@@ -140,15 +140,14 @@ FIGURES
 ==============================================================================
   wrote output\figures\11_calibration.png
   wrote output\figures\12_decision_curve.png
-
 ANSWERS
 ==============================================================================
 
 A23. WHAT AUC CANNOT SEE
-    The unpenalised model reaches AUC 0.661 with a calibration slope of
-    0.59. The elastic net reaches AUC 0.678 with a slope of
-    1.19. On discrimination alone you would call these models
-    equivalent. They are not remotely equivalent.
+    The unpenalised model reaches AUC 0.661 with a calibration slope of 0.59.
+    The elastic net reaches AUC 0.678 with a slope of 1.19. On discrimination
+    alone you would call these models equivalent. They are not remotely
+    equivalent.
 
     A slope below 1 means predicted risks are too spread out: the model pushes
     patients toward 0 and 1 more confidently than the data supports. It has
@@ -163,69 +162,74 @@ A23. WHAT AUC CANNOT SEE
     ordering right"; calibration asks "is the number right". Only the second
     supports a conversation with a patient, and it is the one usually omitted.
 
-    The cause here is countable. 248 events against roughly 39
-    encoded parameters is about 6.4 events per variable, below the
-    conventional floor of 10. At that ratio an unpenalised fit has enough
-    freedom to chase noise, and it does.
+    The cause here is countable. 248 events against roughly 39 encoded
+    parameters is about 6.4 events per variable, below the conventional floor
+    of 10. At that ratio an unpenalised fit has enough freedom to chase noise,
+    and it does.
 
     Read the other direction too, because the penalised fits overshoot: their
-    slopes sit near 1.19, above 1 rather than below. That is the
-    opposite failure -- predictions too tightly bunched around the average,
-    because the penalty shrank the coefficients further than the data required.
-    It is the safer error of the two, since an under-confident model understates
-    how different patients are rather than inventing distinctions, but it is
-    still miscalibration and it would matter if the model were used to select a
-    high-risk group for an intervention. The remedy is not a bigger grid search;
-    it is to report the slope so a reader can see which way the model errs.
+    slopes sit near 1.19, above 1 rather than below. That is the opposite
+    failure -- predictions too tightly bunched around the average, because the
+    penalty shrank the coefficients further than the data required. It is the
+    safer error of the two, since an under-confident model understates how
+    different patients are rather than inventing distinctions, but it is still
+    miscalibration and it would matter if the model were used to select a
+    high-risk group for an intervention. The remedy is not a bigger grid
+    search; it is to report the slope so a reader can see which way the model
+    errs.
 
-    XGBoost is the interesting middle case: slope 0.67, no better
-    calibrated than the unpenalised regression despite its regularisation, and
-    it is the one model here whose calibration intercept is meaningfully off
-    zero (+0.06). Boosting optimises log-loss, which rewards
-    calibration, and it still comes out badly -- capacity is not the same thing
-    as being right about probabilities.
+    XGBoost is the interesting middle case: slope 0.67, no better calibrated
+    than the unpenalised regression despite its regularisation, and it is the
+    one model here whose calibration intercept is meaningfully off zero
+    (+0.06). Boosting optimises log-loss, which rewards calibration, and it
+    still comes out badly -- capacity is not the same thing as being right
+    about probabilities.
 
 A24. THE MISTAKE AND ITS NAME
     Selecting hyperparameters on the same folds you then report performance
     from is a form of information leakage; the resulting estimate is
     optimistically biased. The fix is NESTED cross-validation, and the reason
     this project gets it right almost by accident is structural: the
-    hyperparameter search is a step inside the Pipeline, so scikit-learn refits
-    it on each outer fold's training rows only. Every number in this script
-    comes from 5x5 repeated stratified folds built that way.
+    hyperparameter search is a step inside the Pipeline, so scikit-learn
+    refits it on each outer fold's training rows only. Every number in this
+    script comes from 5x5 repeated stratified folds built that way.
 
-    The size of the effect is easy to underrate. With a small event count and a
-    two-dimensional search -- penalty strength and l1 ratio -- there is real
-    room to select a configuration that suits the particular rows being scored.
-    That is a mistake you cannot detect afterwards from the output, which is why
-    it has to be prevented by construction rather than checked for.
+    The size of the effect is easy to underrate. With a small event count and
+    a two-dimensional search -- penalty strength and l1 ratio -- there is real
+    room to select a configuration that suits the particular rows being
+    scored. That is a mistake you cannot detect afterwards from the output,
+    which is why it has to be prevented by construction rather than checked
+    for.
 
     A related discipline, stated because it is the one being followed: the
-    held-out 30% has not been read by this script. Choosing between models on a
-    test set converts it into a validation set, and there is then nothing left
-    that has not influenced a decision. It is spent once, on a comparison fixed
-    in advance.
+    held-out 30% has not been read by this script. Choosing between models on
+    a test set converts it into a validation set, and there is then nothing
+    left that has not influenced a decision. It is spent once, on a comparison
+    fixed in advance.
 
 A25. WHEN A BETTER MODEL IS NOT A BETTER DELIVERABLE
     XGBoost sits -0.0051 from the elastic net in AUC, with a bootstrap
-    interval of [-0.0361, +0.0279]. The interval crosses zero, so on this evidence the two models are indistinguishable.
+    interval of [-0.0361, +0.0279]. The interval crosses zero, so on this
+    evidence the two models are indistinguishable.
 
     Note which way that sign points. The flexible model did not win and then
     get rejected on interpretability grounds -- it did not win.
 
     That is the honest reading, and it matches the literature: a systematic
-    review of clinical prediction models found no consistent benefit of machine
-    learning over logistic regression on structured data (Christodoulou et al.,
-    J Clin Epidemiol 2019). Tabular clinical data at this scale is where
-    regression is hardest to beat -- the relationships are mostly smooth, the
-    sample is small, and boosting's capacity has little to work with.
+    review of clinical prediction models found no consistent benefit of
+    machine learning over logistic regression on structured data
+    (Christodoulou et al., J Clin Epidemiol 2019). Tabular clinical data at
+    this scale is where regression is hardest to beat -- the relationships are
+    mostly smooth, the sample is small, and boosting's capacity has little to
+    work with.
 
     So the deliverable should not change, and the reason is not sentimental.
     The elastic net yields an odds ratio per predictor with an interval, which
-    is what a journal prints and what a clinician can argue with. XGBoost yields
-    a ranking. Trading an interpretable effect size for a difference this size
-    is a bad trade, and being able to say WHY it is a bad trade -- rather than
-    reporting whichever number came out higher -- is the actual skill on display.
+    is what a journal prints and what a clinician can argue with. XGBoost
+    yields a ranking. Trading an interpretable effect size for a difference
+    this size is a bad trade, and being able to say WHY it is a bad trade --
+    rather than reporting whichever number came out higher -- is the actual
+    skill on display.
 
     The decision tree is included for a different reason again. It loses on
     every metric, and it is the only model here that prints as something a
@@ -234,38 +238,42 @@ A25. WHEN A BETTER MODEL IS NOT A BETTER DELIVERABLE
 
 A26. AGAINST THE PHYSICIAN
     On the 727 patients with a recorded estimate, the attending physician
-    achieves AUC 0.655. The elastic net achieves 0.687, a
-    difference of +0.0320 with interval [-0.0273, +0.0903]. The interval crosses zero: the model neither beats nor loses to the clinician on this evidence.
+    achieves AUC 0.655. The elastic net achieves 0.687, a difference of
+    +0.0320 with interval [-0.0273, +0.0903]. The interval crosses zero: the
+    model neither beats nor loses to the clinician on this evidence.
 
     Two cautions before drawing any conclusion from that.
 
-    The comparison is on the subset the physician scored, which is
-    74.3% of the cohort -- and an estimate is more likely to be
-    recorded for patients a clinician had reason to think about. That is not a
-    random subset, so this is a conditional comparison rather than a general one.
+    The comparison is on the subset the physician scored, which is 74.3% of
+    the cohort -- and an estimate is more likely to be recorded for patients a
+    clinician had reason to think about. That is not a random subset, so this
+    is a conditional comparison rather than a general one.
 
     And the physician is not a competitor. They had access to the bedside, the
-    conversation and the trajectory, none of which is in the dataset; the model
-    has arithmetic. The interesting result is not who wins but whether the model
-    adds anything to what the clinician already knows -- which is an
+    conversation and the trajectory, none of which is in the dataset; the
+    model has arithmetic. The interesting result is not who wins but whether
+    the model adds anything to what the clinician already knows -- which is an
     incremental-value question, answered by adding the physician estimate as a
     covariate and testing what the other predictors contribute on top. That is
     the analysis a cardiology journal would ask for, and it belongs in the
     modelling stage rather than here.
 
 A27. NET BENEFIT: THE QUESTION AUC DOES NOT ASK
-    A decision curve puts the model, "treat everyone" and "treat no one" on one
-    scale: net true positives per patient, after charging for false positives at
-    the exchange rate the threshold implies. Choosing to act at a 20% risk
-    threshold is a statement that one missed death is worth four unnecessary
-    interventions, and the arithmetic follows from that.
+    A decision curve puts the model, "treat everyone" and "treat no one" on
+    one scale: net true positives per patient, after charging for false
+    positives at the exchange rate the threshold implies. Choosing to act at a
+    20% risk threshold is a statement that one missed death is worth four
+    unnecessary interventions, and the arithmetic follows from that.
 
-    Best strategy by threshold: 10% -> LASSO logistic; 20% -> LASSO logistic; 30% -> XGBoost; 40% -> XGBoost; 50% -> XGBoost
+    Best strategy by threshold: 10% -> LASSO logistic; 20% -> LASSO logistic;
+    30% -> XGBoost; 40% -> XGBoost; 50% -> XGBoost
 
     The useful range matters more than the peak. Below roughly the prevalence
     (25.4%), treating everyone is hard to beat, because at a low enough
     threshold you should act on everybody and no model can improve on that.
-    Above it, the models separate from the defaults. Elastic net logistic is above both defaults across 70% of the 0.05-0.50 range, the widest of any model here.
+    Above it, the models separate from the defaults. Elastic net logistic is
+    above both defaults across 70% of the 0.05-0.50 range, the widest of any
+    model here.
 
     This is why decision curve analysis belongs in the report. A model can win
     on AUC and sit below "treat everyone" across every threshold a clinician
@@ -275,4 +283,3 @@ A27. NET BENEFIT: THE QUESTION AUC DOES NOT ASK
     familiarity with the clinical prediction literature rather than the Kaggle
     version of the problem.
 ==============================================================================
-

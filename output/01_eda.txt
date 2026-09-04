@@ -178,7 +178,6 @@ FIGURES
   wrote output\figures\01_missingness_by_variable.png
   wrote output\figures\02_conditioning_on_disease.png
   wrote output\figures\03_binary_vs_time_to_event.png
-
 ANSWERS
 ==============================================================================
 
@@ -187,15 +186,15 @@ A0. WHY THERE IS A HELD-OUT PARTITION, AND WHY IT IS LOCKED
 
     Across 01_eda.py, 02_profile.py and 03_cohort.py this project looks at the
     outcome dozens of times. Each look is a decision point at which the data
-    could steer a modelling choice. That accumulated steering is analyst degrees
-    of freedom, and it makes any subsequent performance estimate optimistic by
-    an amount nobody can compute after the fact.
+    could steer a modelling choice. That accumulated steering is analyst
+    degrees of freedom, and it makes any subsequent performance estimate
+    optimistic by an amount nobody can compute after the fact.
 
-    Two honest responses exist. Report everything as exploratory and correct the
-    optimism by bootstrap. Or partition once, before modelling, and keep one
-    part unseen. This project does both: the findings below are labelled
-    hypothesis-generating and carry FDR-adjusted q-values across 12
-    tests, and a 30% partition is held out by fixed seed and never read.
+    Two honest responses exist. Report everything as exploratory and correct
+    the optimism by bootstrap. Or partition once, before modelling, and keep
+    one part unseen. This project does both: the findings below are labelled
+    hypothesis-generating and carry FDR-adjusted q-values across 12 tests, and
+    a 30% partition is held out by fixed seed and never read.
 
     The partition is generated from a constant (seed 20260901, stratified on
     death) rather than stored, so it reproduces exactly without committing
@@ -203,30 +202,29 @@ A0. WHY THERE IS A HELD-OUT PARTITION, AND WHY IT IS LOCKED
 
 A1. WHY NOT THE BINARY FLAG
     Start by refusing the textbook worry. The standard fear is heavy early
-    dropout, and it does not apply here: only 2.2% of censored
-    patients were followed less than a year. Censoring in SUPPORT2 is mostly
-    administrative -- the study ended. Say that out loud rather than reciting a
-    concern the data does not support.
+    dropout, and it does not apply here: only 2.2% of censored patients were
+    followed less than a year. Censoring in SUPPORT2 is mostly administrative
+    -- the study ended. Say that out loud rather than reciting a concern the
+    data does not support.
 
-    Note also which follow-up number you quote. The median of the time column is
-    237 days, but that is a median time-to-event: every death drags
-    it down. Median follow-up needs the reverse Kaplan-Meier, inverting the
-    indicator so censoring is the event, and it gives 1,051 days --
-    4.4x larger. Quoting the first as "median follow-up" is a common
-    error, and an embarrassing one in a project whose central finding is about
-    follow-up.
+    Note also which follow-up number you quote. The median of the time column
+    is 237 days, but that is a median time-to-event: every death drags it
+    down. Median follow-up needs the reverse Kaplan-Meier, inverting the
+    indicator so censoring is the event, and it gives 1,051 days -- 4.4x
+    larger. Quoting the first as "median follow-up" is a common error, and an
+    embarrassing one in a project whose central finding is about follow-up.
 
     The real objections to the binary flag are three.
 
-    First, the label is nearly saturated: 68.1% of the training
-    cohort and 61.2% of CHF died. An outcome that fires for
-    two-thirds of patients has little room to discriminate, and "died at some
-    point over the next one to five years" is not a question anyone decides on.
+    First, the label is nearly saturated: 68.1% of the training cohort and
+    61.2% of CHF died. An outcome that fires for two-thirds of patients has
+    little room to discriminate, and "died at some point over the next one to
+    five years" is not a question anyone decides on.
 
-    Second, follow-up duration is not balanced across patients, and Q5 shows it
-    correlates with data-collection patterns in a way that manufactures signal.
-    Once that is true the binary flag is not merely lossy. It is biased, in a
-    direction you will not notice unless you look.
+    Second, follow-up duration is not balanced across patients, and Q5 shows
+    it correlates with data-collection patterns in a way that manufactures
+    signal. Once that is true the binary flag is not merely lossy. It is
+    biased, in a direction you will not notice unless you look.
 
     Third, the clinical question is timing. A cardiologist discharging a heart
     failure patient wants 30-day and 6-month risk. Any fixed-horizon binary
@@ -237,15 +235,14 @@ A2. THE COLUMNS THAT MUST NOT ENTER
 
       * The outcome in disguise -- `d.time`, `hospdead`. `d.time` is follow-up
         duration; as a "predictor" of death it reaches a univariate AUC near
-        0.94, which is the tell.
-      * Measured after baseline -- `sfdm2` (function at 2 months), `slos`,
-        `charges`, `totcst`, `avtisst`. Not knowable at prediction time.
-      * Another model's output -- `surv2m`, `surv6m`. Including these means your
-        model is re-predicting the 1995 SUPPORT model.
-      * Constructed from the predictors -- `aps`, `sps` are severity scores
-        computed from the same vitals and labs. Collinear by construction. So is
-        `adlsc`, which 02_profile.py shows is not merely correlated with `adls`
-        but numerically identical to it.
+        0.94, which is the tell. * Measured after baseline -- `sfdm2`
+        (function at 2 months), `slos`, `charges`, `totcst`, `avtisst`. Not
+        knowable at prediction time. * Another model's output -- `surv2m`,
+        `surv6m`. Including these means your model is re-predicting the 1995
+        SUPPORT model. * Constructed from the predictors -- `aps`, `sps` are
+        severity scores computed from the same vitals and labs. Collinear by
+        construction. So is `adlsc`, which 02_profile.py shows is not merely
+        correlated with `adls` but numerically identical to it.
 
     `prg2m` and `prg6m` are excluded for a different reason: they are the
     attending physician's own survival estimates. They are the benchmark. The
@@ -253,22 +250,22 @@ A2. THE COLUMNS THAT MUST NOT ENTER
     beats the doctor -- and you cannot answer that if you fed the doctor's
     answer to the model.
 
-    The general test for a column nobody warned you about: could this value have
-    been known, in this form, at the moment the prediction is meant to be made?
-    If answering needs a hospital course to resolve, it leaks.
+    The general test for a column nobody warned you about: could this value
+    have been known, in this form, at the moment the prediction is meant to be
+    made? If answering needs a hospital course to resolve, it leaks.
 
 A3. IS THE MISSINGNESS INFORMATIVE?
-    On this evidence it looks emphatically non-random. Patients missing BUN died
-    12.1 percentage points more often across all disease groups,
-    with glucose, urine output and patient-reported ADLs showing gaps of similar
+    On this evidence it looks emphatically non-random. Patients missing BUN
+    died 12.1 percentage points more often across all disease groups, with
+    glucose, urine output and patient-reported ADLs showing gaps of similar
     size. Under MCAR you would expect gaps near zero.
 
     That is the answer most analyses give, and it is where most of them stop.
     Hold it loosely. A gap of this kind has at least three explanations: the
-    patient was sicker, the patient was somewhere that orders fewer labs, or the
-    two groups were not observed for the same length of time. The third is
-    invisible to a chi-square, because a chi-square on a cumulative outcome has
-    no concept of exposure time at all.
+    patient was sicker, the patient was somewhere that orders fewer labs, or
+    the two groups were not observed for the same length of time. The third is
+    invisible to a chi-square, because a chi-square on a cumulative outcome
+    has no concept of exposure time at all.
 
     Q4 separates the first two. Q5 surfaces the third, and it removes half the
     variables on this list.
@@ -276,14 +273,15 @@ A3. IS THE MISSINGNESS INFORMATIVE?
 A4. WHY CONDITIONING SPLITS THE VARIABLES IN TWO
     Restricting to CHF holds disease fixed, and the variables separate.
 
-    Some collapse to nothing -- `pafi`, `ph`, `alb`, `bili`, `adls`. Blood gases
-    are drawn almost exclusively on ventilated or ICU patients, so across the
-    full cohort their missingness encoded WHERE a patient was treated: the
-    heavy-missing group is disproportionately ward oncology, the well-measured
-    group disproportionately sepsis. The signal was case mix wearing a lab coat.
+    Some collapse to nothing -- `pafi`, `ph`, `alb`, `bili`, `adls`. Blood
+    gases are drawn almost exclusively on ventilated or ICU patients, so
+    across the full cohort their missingness encoded WHERE a patient was
+    treated: the heavy-missing group is disproportionately ward oncology, the
+    well-measured group disproportionately sepsis. The signal was case mix
+    wearing a lab coat.
 
-    Others get stronger -- `bun`, `urine`, `glucose`. These are basic renal and
-    volume monitoring, which is what you follow in heart failure, where
+    Others get stronger -- `bun`, `urine`, `glucose`. These are basic renal
+    and volume monitoring, which is what you follow in heart failure, where
     cardiorenal syndrome drives outcome. That reading is clinically seductive
     and, as Q5 shows, wrong.
 
@@ -295,41 +293,39 @@ A5. WHY THE TWO TESTS DISAGREE
     those still alive and still observed, is the rate of dying the same? The
     first has no concept of exposure time. The second is built on it.
 
-    The `fu_ratio` column settles it. Among censored CHF patients, those missing
-    BUN were followed a median 1,690 days against 664 for
-    those with it recorded -- 2.55 times longer. They did not die at a
-    higher rate; they were watched longer, so more had died by the time the
-    study closed. The 20.9 point gap is an accounting artefact of unequal
-    observation windows, and the overlapping curves in Figure 3 are what that
-    looks like.
+    The `fu_ratio` column settles it. Among censored CHF patients, those
+    missing BUN were followed a median 1,690 days against 664 for those with
+    it recorded -- 2.55 times longer. They did not die at a higher rate; they
+    were watched longer, so more had died by the time the study closed. The
+    20.9 point gap is an accounting artefact of unequal observation windows,
+    and the overlapping curves in Figure 3 are what that looks like.
 
     The variables sort themselves by this ratio:
 
-      * ratio near 2.54, log-rank null -- bun, urine, glucose. All
-        artefact. Their binary p-values are the most significant on the list and
-        mean nothing.
-      * ratio 1.13 to 1.15, surviving FDR correction --
-        income and adlp. Real.
+      * ratio near 2.54, log-rank null -- bun, urine, glucose. All artefact.
+        Their binary p-values are the most significant on the list and mean
+        nothing. * ratio 1.13 to 1.15, surviving FDR correction -- income and
+        adlp. Real.
 
     Notice what the survivors are. Not laboratory values at all -- they are
     collected by INTERVIEWING the patient. Non-response to an interview is
-    caused by the patient's condition: too unwell, too confused, or dead before
-    the interview happened. That is missingness driven by the outcome process
-    itself, the textbook definition of informative, and the one place here where
-    the textbook applies.
+    caused by the patient's condition: too unwell, too confused, or dead
+    before the interview happened. That is missingness driven by the outcome
+    process itself, the textbook definition of informative, and the one place
+    here where the textbook applies.
 
     One apparent survivor did not survive. On the full cohort with unadjusted
     p-values, education looked real. On the training partition with FDR
-    correction across 12 tests it is gone (p=0.063, q=0.253). Nothing
-    about education changed -- what changed is that it was no longer judged
-    against a bar it had help clearing. Marginal findings are exactly the ones
-    that evaporate under a holdout and a multiplicity correction, which is the
+    correction across 12 tests it is gone (p=0.063, q=0.253). Nothing about
+    education changed -- what changed is that it was no longer judged against
+    a bar it had help clearing. Marginal findings are exactly the ones that
+    evaporate under a holdout and a multiplicity correction, which is the
     argument for imposing both before you become attached to a result.
 
 A6. WHAT TO ACTUALLY DO
-    Not complete-case analysis. Requiring every candidate predictor leaves
-    72 of the CHF training cohort (7.4%), and Q4 shows the
-    dropped rows differ systematically. That is selection bias, not tidying.
+    Not complete-case analysis. Requiring every candidate predictor leaves 72
+    of the CHF training cohort (7.4%), and Q4 shows the dropped rows differ
+    systematically. That is selection bias, not tidying.
 
     Not the SUPPORT normal-fill constants as the primary strategy either.
     Filling creatinine with 1.01 asserts a value was normal when it was never
@@ -342,24 +338,24 @@ A6. WHAT TO ACTUALLY DO
       1. Multiple imputation (MICE), conditioning the imputation model on the
          auxiliaries Q4 identified -- dzgroup and care-intensity measures --
          since those are what make MAR tenable for the case-mix-driven group.
-      2. Missingness indicators for income and adlp only -- the variables that clear
-         FDR correction on training data. This is the trap the question points
-         at: after Q3 the obvious move is to flag bun, urine, glucose, and that
-         would be wrong. Those indicators encode enrolment era, not patient
-         state (03_cohort.py proves it). You would spend degrees of freedom on
-         noise and then be asked, in front of clinicians, to explain a
-         coefficient for "BUN was not drawn" -- with no clinical story to tell.
-      3. Imputation fitted inside each cross-validation fold. Imputing on the
-         full dataset before splitting leaks test information into training, and
-         is the most common silent error in pipelines like this.
+         2. Missingness indicators for income and adlp only -- the variables
+         that clear FDR correction on training data. This is the trap the
+         question points at: after Q3 the obvious move is to flag bun, urine,
+         glucose, and that would be wrong. Those indicators encode enrolment
+         era, not patient state (03_cohort.py proves it). You would spend
+         degrees of freedom on noise and then be asked, in front of
+         clinicians, to explain a coefficient for "BUN was not drawn" -- with
+         no clinical story to tell. 3. Imputation fitted inside each
+         cross-validation fold. Imputing on the full dataset before splitting
+         leaks test information into training, and is the most common silent
+         error in pipelines like this.
 
     Then report the sensitivity: MICE, complete-case and normal-fill side by
     side. Where they agree, say so. Where they diverge, the divergence is a
     finding about the data rather than an inconvenience.
 
-    Note finally that 349 physiologically impossible cells were set to
-    missing before any of this ran -- see 02_profile.py Q8. They are imputed
-    alongside the values that were never recorded, because an impossible
-    measurement and an absent one are the same kind of ignorance.
+    Note finally that 349 physiologically impossible cells were set to missing
+    before any of this ran -- see 02_profile.py Q8. They are imputed alongside
+    the values that were never recorded, because an impossible measurement and
+    an absent one are the same kind of ignorance.
 ==============================================================================
-

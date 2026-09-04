@@ -1,0 +1,192 @@
+
+==============================================================================
+SUPPORT2 -- the ceiling, and transport across a protocol change
+==============================================================================
+  CHF training partition 978, 248 events (25.4%)
+  THE HELD-OUT 30% WAS SPENT IN 10_confirmatory.py AND IS NOT READ HERE.
+  Nothing below may be used to revise the confirmatory result.
+
+------------------------------------------------------------------------------
+QUESTION 46: Would more data help? Plot the learning curve and find out,
+rather than assuming either way.
+------------------------------------------------------------------------------
+ fraction   n  mean_auc     sd     lo     hi
+     0.25 244    0.6285 0.0552 0.5223 0.7269
+     0.40 391    0.6256 0.0451 0.5352 0.6910
+     0.55 537    0.6341 0.0362 0.5658 0.7007
+     0.70 684    0.6517 0.0233 0.6130 0.6932
+     0.85 831    0.6538 0.0160 0.6220 0.6781
+     1.00 978    0.6602 0.0113 0.6389 0.6762
+
+  AUC from n=244.0 to n=978.0: 0.6285 -> 0.6602 (+0.0316)
+  Slope over the upper half of the curve: +0.0029 AUC per 100 additional patients
+  Extrapolated gain from doubling the cohort to 1,956.0: +0.028
+
+------------------------------------------------------------------------------
+QUESTION 47: Would a much larger hyperparameter search help? Run one and
+report the answer honestly, including if it contradicts the
+expectation.
+------------------------------------------------------------------------------
+                                 model    auc  pr_auc  calibration_slope  brier
+Elastic net, project grid (24 configs) 0.6766  0.4422             1.1828 0.1734
+  Elastic net, wide grid (250 configs) 0.6723  0.4405             1.1447 0.1736
+  XGBoost, project defaults (1 config) 0.6561  0.4305             0.5723 0.1786
+  XGBoost, random search (120 configs) 0.6596  0.4180             0.9632 0.1761
+
+  Elastic net: 24 configurations -> 250. AUC change -0.0043
+  XGBoost:      1 configuration -> 120. AUC change +0.0035
+  XGBoost calibration slope: 0.572 -> 0.963
+
+------------------------------------------------------------------------------
+QUESTION 48: A random train/test split is the weakest form of validation TRIPOD
+recognises. This cohort contains a protocol change. Use it: train
+on one enrolment wave, validate on the other.
+------------------------------------------------------------------------------
+trained_on  tested_on  n_train  n_test  train_prev  test_prev   auc  calibration_slope  brier
+      late      early      457     521       0.225      0.278 0.650              1.930  0.192
+     early       late      521     457       0.278      0.225 0.577              0.333  0.192
+ late (CV)  late (CV)      457     457       0.225      0.225 0.605              1.152  0.167
+early (CV) early (CV)      521     521       0.278      0.278 0.723              1.022  0.175
+
+  25 predictors usable across both waves; bun, urine, glucose dropped -- absent from the early wave.
+
+  mean AUC within-wave  0.664
+  mean AUC across-wave  0.614
+  transport cost        -0.050
+
+==============================================================================
+FIGURES
+==============================================================================
+  wrote output\figures\21_ceiling_and_transport.png
+ANSWERS
+==============================================================================
+
+A46. WOULD MORE DATA HELP?
+    From 244 to 978 training patients the cross-validated AUC moves +0.0316.
+    Over the upper half of the curve the slope is +0.0029 AUC per 100
+    additional patients, which extrapolates to +0.028 if the cohort were
+    doubled.
+
+    The curve is still climbing: more patients would plausibly help, and the
+    sample size is a real constraint on performance as well as on precision.
+
+    This contradicts what I expected before running it, and the expectation is
+    worth recording because it was wrong. The reasoning was: five model
+    families land within 0.05 AUC of one another, and the optimism bootstrap
+    put the elastic net's shrinkage factor at 1.00, so the model is
+    information-limited rather than capacity-limited and more of the same
+    patients should not help. The first half of that is still true. The
+    conclusion drawn from it was not.
+
+    Two constraints were being conflated. A model can be information-limited
+    in the sense that no ALGORITHM will do better on these variables, and
+    still be sample-limited in the sense that these variables' predictive
+    content is not yet fully estimated. The learning curve separates them,
+    which is why it is worth plotting rather than reasoning about.
+
+    So both findings point the same way for different reasons. Riley's
+    criteria (07_validation.py Q31) say the cohort is too small for the
+    coefficients to be PRECISE. The learning curve says it is also too small
+    for discrimination to have topped out. Doubling the cohort would buy
+    roughly +0.028 AUC and considerably steadier estimates -- a modest but
+    real return, and a far better use of effort than any amount of additional
+    tuning.
+
+    What the curve cannot show is the effect of more VARIABLES. The
+    information that would move discrimination here is ejection fraction, NYHA
+    class, BNP, medications -- all absent (04_clinical.py Q21). A larger
+    cohort with the same twenty-eight columns buys precision; a smaller cohort
+    with an echocardiogram would probably buy more. The honest ranking of what
+    to spend money on: better variables first, more patients second, better
+    algorithms last.
+
+A47. WOULD A BIGGER SEARCH HELP?
+    No, and this was worth testing rather than asserting.
+
+    Widening the elastic net from 24 configurations to 250 changes AUC by
+    -0.0043. Replacing XGBoost's single hand-set configuration with a
+    120-candidate random search over nine hyperparameters -- depth, learning
+    rate, subsample, column sample, minimum child weight, two regularisation
+    terms, gamma and tree count -- changes it by +0.0035.
+
+    Both searches were evaluated by nested cross-validation, so these are not
+    the optimistic in-sample numbers a search reports about itself. The search
+    is refitted on every outer fold and scored on rows it did not select on.
+
+    One qualification, because the search did buy something and reporting only
+    AUC would hide it. XGBoost's calibration slope moved from 0.57 to 0.96
+    under the wide search -- from badly overconfident to close to ideal. Its
+    discrimination barely moved and its PR-AUC got slightly worse, so on the
+    headline metric the search was a wash; on the metric this project has
+    argued matters more, it was a real improvement.
+
+    That is a genuine finding rather than a rescue of the original claim. It
+    sharpens it: hyperparameter search on this problem does not buy ranking,
+    but it can buy probability quality -- and a search scored on AUC alone
+    would have discarded the configuration that fixed the calibration. Choose
+    the search metric to match what the model is for. Here `neg_log_loss` was
+    used rather than `roc_auc` precisely because it is a proper scoring rule
+    and rewards calibration, and that choice is why the improvement appeared
+    at all.
+
+    This is the expected result and the reason is in the project already. The
+    optimism bootstrap in 07_validation.py measured the elastic net's
+    shrinkage factor at 1.00 -- the model needs no shrinkage, which is another
+    way of saying it is not leaving fit on the table. Five model families
+    spanning unpenalised regression to gradient boosting land within 0.05 AUC
+    of one another. When the choice of model class stops mattering, the
+    hyperparameters within a class will not matter either.
+
+    The general lesson, which transfers well beyond this dataset:
+    hyperparameter search moves performance when the model is
+    capacity-limited. It does nothing when the model is information-limited,
+    and the way to tell the difference is to look at whether different model
+    families disagree. Here they do not.
+
+A48. DOES IT TRANSPORT ACROSS A PROTOCOL CHANGE?
+    Within a wave the model reaches 0.664. Trained on one wave and applied to
+    the other it reaches 0.614 -- a transport cost of -0.050.
+
+    Discrimination dropped materially across the protocol change, which is a
+    genuine warning about transportability and a stronger caution than the
+    random-split result gave.
+
+    This is a better test than the random split that produced the confirmatory
+    result, and TRIPOD says so: a random split reshuffles the same patients
+    and asks whether the model generalises to more of them; a temporal split
+    asks whether it generalises across a change in when and how the data were
+    collected. The second is much closer to the question anyone deploying a
+    model actually faces.
+
+    Three honest costs, none of them small.
+
+    The wave is INFERRED, not recorded. It is identified by BUN missingness,
+    which 03_cohort.py Q16 showed is 100% absent in the early wave against
+    0.9% late -- close to deterministic but not deterministic, so some
+    patients are misassigned.
+
+    Three predictors had to be dropped. bun, urine and glucose are 100%, 99.0%
+    and 99.5% missing in the early wave, so they cannot be used by a model
+    that has to run on both sides. The cross-wave model is therefore not the
+    same model as the one in 10_confirmatory.py, and the numbers are not
+    directly comparable to it.
+
+    And it is still internal. Both waves come from the same five hospitals in
+    the same programme. A model that transports across a protocol change
+    within one study has not been shown to transport to a different
+    institution, a different country, or the present decade -- and
+    04_clinical.py A22 gives concrete reasons to expect the last of those to
+    go badly.
+
+    What this does establish is narrower and worth stating precisely: the
+    model's discrimination is not an artefact of one data-collection protocol.
+    That is a real result and it is the strongest transportability claim this
+    dataset supports.
+
+    A final constraint, because it governs what any of this can be used for.
+    The held-out partition was spent in 10_confirmatory.py. Nothing in this
+    file may revise that result. If the wide search HAD found a better model,
+    the honest response would not have been to report it against the existing
+    holdout -- it would have been to note that a new model requires a new
+    holdout, and that this cohort no longer has one to give.
+==============================================================================

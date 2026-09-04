@@ -221,7 +221,6 @@ FIGURES
   wrote output\figures\07_survival_overview.png
   wrote output\figures\08_enrolment_waves.png
   wrote output\figures\09_missingness_patterns.png
-
 ANSWERS
 ==============================================================================
 
@@ -236,65 +235,64 @@ A12. WHAT THE DATA DICTIONARY CATCHES
     precisely because the interesting table looks fine.
 
     The unglamorous columns earn their place: n_obs, unique, range, unit. A
-    creatinine range of 0.3 to 20 mg/dL is plausible; the same numbers labelled
-    umol/L would not be. Without the unit column nobody can check that, and
-    plausibility bounds asserted without units are unreviewable.
+    creatinine range of 0.3 to 20 mg/dL is plausible; the same numbers
+    labelled umol/L would not be. Without the unit column nobody can check
+    that, and plausibility bounds asserted without units are unreviewable.
 
     Note also what this table must NOT do, which an earlier version of this
     project got wrong. It once published an albumin maximum of 29.0 g/dL, two
     sections after the write-up called that value incompatible with life,
-    because the plausibility bounds lived in one script and were applied in one
-    function. A dictionary that contradicts the data-quality section is worse
-    than no dictionary, because it looks like diligence. The bounds now live in
-    support2.PLAUSIBLE_BOUNDS and are applied by the shared entry point, so the
-    two cannot disagree.
+    because the plausibility bounds lived in one script and were applied in
+    one function. A dictionary that contradicts the data-quality section is
+    worse than no dictionary, because it looks like diligence. The bounds now
+    live in support2.PLAUSIBLE_BOUNDS and are applied by the shared entry
+    point, so the two cannot disagree.
 
 A13. WHAT THE CURVE IS MISSING
-    The numbers at risk. A Kaplan-Meier plot without a risk table underneath it
-    will be sent back by any competent reviewer, and the reason is visible in
-    this cohort's tail.
+    The numbers at risk. A Kaplan-Meier plot without a risk table underneath
+    it will be sent back by any competent reviewer, and the reason is visible
+    in this cohort's tail.
 
-    Survival at day 1,825 is estimated at 26.9% -- from 53
-    patients. At day 30 the same curve rests on 891. It is drawn at
-    full width and full confidence at both, and looks exactly as authoritative
-    in each place. A reader cannot see the difference from the line alone, and
-    the confidence band understates it because it narrows on the survival scale
-    as the estimate approaches zero.
+    Survival at day 1,825 is estimated at 26.9% -- from 53 patients. At day 30
+    the same curve rests on 891. It is drawn at full width and full confidence
+    at both, and looks exactly as authoritative in each place. A reader cannot
+    see the difference from the line alone, and the confidence band
+    understates it because it narrows on the survival scale as the estimate
+    approaches zero.
 
     The at-risk row restores the denominator. It is the single most common
     reason survival figures are rejected, and it costs one line of code.
 
-    Report landmark estimates with confidence intervals too, rather than only a
-    median. In a cohort this sick the median arrives early, and the clinically
-    interesting question -- what fraction is alive at a year, here 63.4%
-    -- lives elsewhere on the curve.
+    Report landmark estimates with confidence intervals too, rather than only
+    a median. In a cohort this sick the median arrives early, and the
+    clinically interesting question -- what fraction is alive at a year, here
+    63.4% -- lives elsewhere on the curve.
 
 A14. WHAT THE HAZARD SHAPE TELLS YOU
-    The death rate is heavily front-loaded: the first interval runs at
-    6.0 times the rate of the last. This is a cohort of critically
-    ill patients, so that is clinically unsurprising, but it has two concrete
-    consequences.
+    The death rate is heavily front-loaded: the first interval runs at 6.0
+    times the rate of the last. This is a cohort of critically ill patients,
+    so that is clinically unsurprising, but it has two concrete consequences.
 
-    For a proportional-hazards model: proportionality is an assumption about the
-    RATIO of hazards between groups, not about the shape of the baseline hazard,
-    so a falling baseline is not itself a violation. Cox handles it without
-    complaint. But a steeply changing baseline is where non-proportionality
-    tends to hide -- a covariate that matters intensely in the first month and
-    little afterwards still yields a plausible-looking single hazard ratio. Test
-    with Schoenfeld residuals rather than assuming.
+    For a proportional-hazards model: proportionality is an assumption about
+    the RATIO of hazards between groups, not about the shape of the baseline
+    hazard, so a falling baseline is not itself a violation. Cox handles it
+    without complaint. But a steeply changing baseline is where
+    non-proportionality tends to hide -- a covariate that matters intensely in
+    the first month and little afterwards still yields a plausible-looking
+    single hazard ratio. Test with Schoenfeld residuals rather than assuming.
 
-    For horizon choice: most events are early, so a 30-day or 90-day horizon is
-    where the data is dense and where a discharge decision actually sits. A
-    five-year horizon is estimable but rests on 53 patients and
-    answers a question nobody asks at the bedside.
+    For horizon choice: most events are early, so a 30-day or 90-day horizon
+    is where the data is dense and where a discharge decision actually sits. A
+    five-year horizon is estimable but rests on 53 patients and answers a
+    question nobody asks at the bedside.
 
 A15. WHAT PATTERNS SAY THAT RATES CANNOT
     A rate is a marginal. It tells you a variable is half missing and nothing
     about whether those are the same patients each time.
 
-    Across 12 variables there are 4,096 possible missingness
-    patterns and only 233 occur. The phi matrix shows blocks of
-    near-perfect co-occurrence -- variables absent together, as a set.
+    Across 12 variables there are 4,096 possible missingness patterns and only
+    233 occur. The phi matrix shows blocks of near-perfect co-occurrence --
+    variables absent together, as a set.
 
     That structure is diagnostic. Missingness caused by individual patients --
     one refused a test, another was too unwell for an interview -- produces
@@ -310,11 +308,11 @@ A16. THE ENROLMENT WAVES, PROVEN
     carry the information.
 
     Administrative censoring occurs when the study closes, not when a patient
-    leaves. So for censored patients, follow-up duration is a direct function of
-    enrolment date: enrol early, be observed longer. If enrolment came in two
-    waves against a single closing date, censored follow-up must be bimodal --
-    and it is, with the interval at 1080-1260 days holding 1 patients
-    against neighbours of 42 and 28. A single continuous accrual
+    leaves. So for censored patients, follow-up duration is a direct function
+    of enrolment date: enrol early, be observed longer. If enrolment came in
+    two waves against a single closing date, censored follow-up must be
+    bimodal -- and it is, with the interval at 1080-1260 days holding 1
+    patients against neighbours of 42 and 28. A single continuous accrual
     cannot produce that gap.
 
     Assigning a wave proxy at 1150 days separates the variables far more
@@ -330,49 +328,50 @@ A16. THE ENROLMENT WAVES, PROVEN
         adlp     31.5% vs 23.0%
         income   27.5% vs 21.7%
 
-    A hundred-to-one split is not a measurement pattern. It is a protocol: those
-    assays were not part of the early collection instrument. The converse
-    confirms it from the other direction -- 0.0% of
-    censored patients with BUN recorded fall in the early wave, against
-    98.7% of those missing it.
+    A hundred-to-one split is not a measurement pattern. It is a protocol:
+    those assays were not part of the early collection instrument. The
+    converse confirms it from the other direction -- 0.0% of censored patients
+    with BUN recorded fall in the early wave, against 98.7% of those missing
+    it.
 
     So the mechanism is established rather than speculated, and it is stronger
-    than "informative missingness" ever was. Missing BUN records WHEN a patient
-    was enrolled. Enrolling earlier means being observed longer, which means a
-    higher chance of having died before the study closed. Every step of the
-    spurious association is visible and none of it involves the patient.
+    than "informative missingness" ever was. Missing BUN records WHEN a
+    patient was enrolled. Enrolling earlier means being observed longer, which
+    means a higher chance of having died before the study closed. Every step
+    of the spurious association is visible and none of it involves the
+    patient.
 
-    Stated honestly: the wave assignment is a proxy inferred from censoring, not
-    a recorded field, and it can only be assigned to censored patients -- a
-    patient who died before the closing date reveals nothing about their
+    Stated honestly: the wave assignment is a proxy inferred from censoring,
+    not a recorded field, and it can only be assigned to censored patients --
+    a patient who died before the closing date reveals nothing about their
     enrolment date. That is a real limit on the proof. It does not weaken the
     conclusion, because the mechanism only needs to explain the censored
     patients to account for the imbalance in observation windows.
 
 A17. VIF, HONESTLY
-    The complete-case table rests on 91 of the training cohort
-    (9.3%), and Q3-Q5 established those are not a random sample.
-    A diagnostic measured on a non-random subsample is not evidence about the
-    cohort. Q16 sharpens the point: complete cases are overwhelmingly late-wave
-    patients, because three of the variables required for completeness were
-    never collected in the early wave. "Complete case" here is close to a
-    synonym for "enrolled after the protocol changed".
+    The complete-case table rests on 91 of the training cohort (9.3%), and
+    Q3-Q5 established those are not a random sample. A diagnostic measured on
+    a non-random subsample is not evidence about the cohort. Q16 sharpens the
+    point: complete cases are overwhelmingly late-wave patients, because three
+    of the variables required for completeness were never collected in the
+    early wave. "Complete case" here is close to a synonym for "enrolled after
+    the protocol changed".
 
     Recomputed on imputed data across the full training cohort, the conclusion
-    happens to hold -- the maximum VIF is 2.52, nowhere near the
-    conventional thresholds. But that was not knowable in advance. It had to be
-    checked, and it could have gone the other way.
+    happens to hold -- the maximum VIF is 2.52, nowhere near the conventional
+    thresholds. But that was not knowable in advance. It had to be checked,
+    and it could have gone the other way.
 
     Two caveats to state rather than bury. Single imputation is used because
-    this is a diagnostic and it understates uncertainty; the modelling strategy
-    remains MICE fitted inside cross-validation folds. And VIF measures only
-    linear dependence among predictors as entered, so it says nothing about the
-    spline terms Q10 justified for creatinine, whose basis functions are
-    collinear with one another by construction and are meant to be.
+    this is a diagnostic and it understates uncertainty; the modelling
+    strategy remains MICE fitted inside cross-validation folds. And VIF
+    measures only linear dependence among predictors as entered, so it says
+    nothing about the spline terms Q10 justified for creatinine, whose basis
+    functions are collinear with one another by construction and are meant to
+    be.
 
     The general habit: when a diagnostic rests on a subset, report the subset
-    size beside it. A reassuring number attached to a tenth of the cohort is not
-    reassurance, and the reader cannot detect the problem unless you show the
-    denominator.
+    size beside it. A reassuring number attached to a tenth of the cohort is
+    not reassurance, and the reader cannot detect the problem unless you show
+    the denominator.
 ==============================================================================
-

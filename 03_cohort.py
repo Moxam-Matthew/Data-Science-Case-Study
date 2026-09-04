@@ -36,7 +36,7 @@ import numpy as np
 import pandas as pd
 
 import viz
-from report import RULE, Facts, configure_pandas, header, question, run_and_capture
+from report import Facts, RULE, configure_pandas, header, question, render_answers, run_and_capture
 from stats_utils import median_followup
 from support2 import (
     CANDIDATE_PREDICTORS,
@@ -621,8 +621,8 @@ def main() -> None:
                  figure_missingness_patterns(pat["phi"], len(chf))):
         print(f"  wrote {path.relative_to(Path(__file__).resolve().parent)}")
 
-    print(ANSWERS.format(rule=RULE,
-                         **collect_facts(surv, haz, pat, enrol, vif, chf)))
+    print(render_answers(ANSWERS,
+                         dict(collect_facts(surv, haz, pat, enrol, vif, chf), rule=RULE)))
 
 
 if __name__ == "__main__":

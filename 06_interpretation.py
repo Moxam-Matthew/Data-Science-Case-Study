@@ -41,7 +41,7 @@ from modelling import (
     default_predictors,
     make_outcome,
 )
-from report import RULE, Facts, configure_pandas, header, question, run_and_capture
+from report import Facts, RULE, configure_pandas, header, question, render_answers, run_and_capture
 from support2 import analysis_frames
 
 OUT_DIR = Path(__file__).resolve().parent / "output"
@@ -283,8 +283,9 @@ def figure_dendrogram(clust: dict, Z: pd.DataFrame):
                  fontsize=12, fontweight="600")
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     viz.caption(fig, f"CHF training cohort, n={len(Z):,}, imputed and standardised predictors, Euclidean\n"
-                     f"distance, last 25 merges shown. Single linkage chains into one giant cluster; Ward\n"
-                     f"produces balanced groups. Neither fact makes the partition a clinical phenotype.")
+                     f"distance, last 25 merges shown. Single, complete and average linkage all chain into one\n"
+                     f"cluster holding 98-99% of patients; Ward is the only criterion that divides the cohort at\n"
+                     f"all, and even it leaves 58% in one group. None of this makes the partition a phenotype.")
     return viz.save(fig, "14_dendrogram.png")
 
 
@@ -490,7 +491,7 @@ def main() -> None:
         prevalence=f"{y.mean()*100:.1f}",
         n=f"{len(chf):,}",
     )
-    print(ANSWERS.format(rule=RULE, **facts))
+    print(render_answers(ANSWERS, dict(facts, rule=RULE)))
 
 
 if __name__ == "__main__":

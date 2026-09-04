@@ -13,10 +13,13 @@ from support2 import (
     CANDIDATE_PREDICTORS,
     OUTCOME_EVENT,
     PLAUSIBLE_BOUNDS,
+    CHF_LABEL,
+    SEPSIS_LABEL,
     analysis_frames,
     apply_plausibility_bounds,
     audit_columns,
     chf_cohort,
+    disease_cohort,
     load_support2,
     make_split,
     model_predictors,
@@ -267,3 +270,51 @@ class TestDNRSplit:
                              ina[OUTCOME_EVENT], none[OUTCOME_EVENT]).p_value
         assert p_pre > 0.10, "pre-existing directive should track the no-DNR curve"
         assert p_ina < 0.001, "in-admission order should separate sharply"
+
+
+class TestCohortParameterisation:
+    """The replication arm (12_replication.py) runs the same pipeline against a
+    second disease group. That is only sound if selecting a cohort cannot move
+    a patient across the train/test line -- the split has to be defined on the
+    whole dataset and filtered afterwards, never recomputed per cohort."""
+
+    def test_split_does_not_depend_on_the_cohort_requested(self, raw):
+        """The nastiest failure mode this guards: if the split were computed
+        after subsetting, the same patient could land in train for one cohort
+        and test for another, and the sepsis holdout would be contaminated by
+        the CHF arm having already been read."""
+        chf = analysis_frames(group=CHF_LABEL)
+        sep = analysis_frames(group=SEPSIS_LABEL)
+        pd.testing.assert_index_equal(chf.full_train.index.sort_values(),
+                                      sep.full_train.index.sort_values())
+
+    def test_cohorts_are_disjoint(self, raw):
+        chf = set(disease_cohort(raw, CHF_LABEL).index)
+        sep = set(disease_cohort(raw, SEPSIS_LABEL).index)
+        assert chf and sep
+        assert not (chf & sep)
+
+    def test_sepsis_frames_never_return_the_test_partition(self, raw):
+        s = make_split(raw)
+        test_idx = set(raw.index[s == "test"])
+        assert not (set(analysis_frames(group=SEPSIS_LABEL).chf_train.index)
+                    & test_idx)
+
+    def test_unknown_group_is_rejected(self, raw):
+        """A typo in a group name must fail loudly rather than silently
+        returning an empty frame that every downstream metric would happily
+        compute nonsense from."""
+        with pytest.raises(ValueError):
+            disease_cohort(raw, "ARF/MOSF w/sepsis")   # wrong capitalisation
+
+    def test_chf_cohort_still_matches_the_parameterised_call(self, raw):
+        pd.testing.assert_frame_equal(chf_cohort(raw),
+                                      disease_cohort(raw, CHF_LABEL))
+
+    def test_sepsis_arm_is_the_larger_one(self, raw):
+        """The whole reason for the replication: the CHF conclusions rest on
+        6.4 events per variable. If this ever stops holding, the framing in
+        12_replication.py is wrong."""
+        chf = analysis_frames(group=CHF_LABEL).chf_train
+        sep = analysis_frames(group=SEPSIS_LABEL).chf_train
+        assert len(sep) > 2 * len(chf)

@@ -1,0 +1,288 @@
+
+==============================================================================
+SUPPORT2 -- is the sepsis model useful, not merely accurate?
+==============================================================================
+  ARF/MOSF w/Sepsis: 2,458 training, 1,057 held out.
+  Primary model re-fitted exactly as in 12_replication.py: AUC 0.739, calibration slope 0.957.
+  Held-out prevalence 45.0%.
+
+------------------------------------------------------------------------------
+QUESTION 57: Decision curve analysis. Across the thresholds a clinician
+might actually use, does the model beat treating everyone and
+treating nobody?
+------------------------------------------------------------------------------
+  Prevalence in this partition is 45.0%, so 'treat all' is a
+  serious competitor up to a threshold near that value.
+
+ threshold  model  treat_all  treat_none  best_alternative  advantage  avoided_per_100
+       0.1 0.3917     0.3893         0.0            0.3893     0.0024           2.1760
+       0.2 0.3259     0.3129         0.0            0.3129     0.0130           5.2034
+       0.3 0.2617     0.2148         0.0            0.2148     0.0469          10.9429
+       0.4 0.1933     0.0839         0.0            0.0839     0.1094          16.4144
+       0.5 0.1410    -0.0993         0.0            0.0000     0.1410          14.0965
+       0.6 0.0544    -0.3742         0.0            0.0000     0.0544           3.6266
+       0.7 0.0110    -0.8322         0.0            0.0000     0.0110           0.4730
+       0.8 0.0009    -1.7483         0.0            0.0000     0.0009           0.0237
+
+  The model has positive net benefit over the best alternative at
+  35 of 36 thresholds, spanning 0.10 to 0.80.
+  Largest advantage at threshold 0.46: +0.1611 net benefit,
+  equivalent to avoiding 18.9 unnecessary interventions per 100
+  patients at the same number of deaths correctly identified.
+
+------------------------------------------------------------------------------
+QUESTION 58: The same model at 45% prevalence instead of 25%. Which of the
+four confusion-matrix numbers move, and which do not?
+------------------------------------------------------------------------------
+  Operating point pre-specified at 0.50, NOT read off the
+  decision curve -- selecting it there would be choosing a threshold
+  on a holdout 12_replication.py already spent. The MODEL does not
+  change between these rows; only the population does.
+
+ prevalence  sensitivity  specificity   ppv   npv
+      0.100        0.607        0.759 0.219 0.946
+      0.254        0.607        0.759 0.462 0.850
+      0.450        0.607        0.759 0.673 0.703
+      0.600        0.607        0.759 0.791 0.563
+      0.800        0.607        0.759 0.910 0.326
+
+  Moving from the CHF prevalence (25.4%) to this one (45.0%):
+    sensitivity  0.607 -> 0.607   (fixed)
+    specificity  0.759 -> 0.759   (fixed)
+    PPV          0.462 -> 0.673   (+0.212)
+    NPV          0.850 -> 0.703   (-0.148)
+
+------------------------------------------------------------------------------
+QUESTION 59: The physician is ahead on AUC. Does the model add anything ON
+TOP of the physician, which is the only version of the
+question that matters?
+------------------------------------------------------------------------------
+  2,090 training patients carry a physician estimate. All three
+  models are out-of-fold, 5-fold x 5 repeats.
+
+    physician alone           AUC 0.791
+    model alone               AUC 0.741
+    physician + model         AUC 0.812
+
+  Incremental value of the model over the physician:
+    +0.0206 [+0.0103, +0.0307]  crosses zero False
+
+------------------------------------------------------------------------------
+QUESTION 60: CHF's learning curve was still climbing at n=978. Is this one
+flat at 2,458 -- and does that settle whether more data was
+the answer?
+------------------------------------------------------------------------------
+ fraction    n  mean_auc     sd     lo     hi
+     0.20  491    0.7218 0.0245 0.6781 0.7571
+     0.35  860    0.7328 0.0167 0.7037 0.7628
+     0.50 1229    0.7383 0.0105 0.7202 0.7561
+     0.65 1597    0.7391 0.0092 0.7243 0.7538
+     0.80 1966    0.7398 0.0056 0.7298 0.7480
+     1.00 2458    0.7442 0.0022 0.7391 0.7474
+
+  AUC from n=491 to n=2,458: 0.7218 -> 0.7442 (+0.0224)
+  Slope over the upper half: +0.0006 AUC per 100 patients
+  Extrapolated gain from doubling to 4,916: +0.015
+  CHF, same extrapolation at n=978: +0.028
+  Spread across resamples narrowed from sd 0.0245 to 0.0022.
+
+------------------------------------------------------------------------------
+QUESTION 61: The last lever. A bigger grid bought nothing (11 Q47). Does
+COMBINING the models -- which a grid cannot reach -- do better
+than either alone?
+------------------------------------------------------------------------------
+                    model    auc  pr_auc  calibration_slope  brier
+        Elastic net alone 0.7389  0.6831             1.0201 0.2047
+            XGBoost alone 0.7423  0.6962             0.8610 0.2037
+  Stacked (net + XGBoost) 0.7461  0.6957             1.0860 0.2023
+Simple average of the two 0.7480  0.7013             1.0220 0.2013
+
+  Stacked minus elastic net alone:
+    +0.0072 [+0.0033, +0.0110]  crosses zero False
+
+  Simple average minus elastic net alone:
+    +0.0091 [+0.0028, +0.0152]  crosses zero False
+
+==============================================================================
+FIGURES
+==============================================================================
+  wrote output\figures\24_sepsis_utility.png
+ANSWERS
+==============================================================================
+
+A57. IS IT USEFUL, NOT JUST ACCURATE?
+    Yes, over a usable range. The model has higher net benefit than both
+    treating everyone and treating nobody at 35 of 36 thresholds tested,
+    spanning 0.10 to 0.80. At its best point, threshold 0.46, the advantage is
+    equivalent to avoiding 18.9 unnecessary interventions per 100 patients
+    while identifying the same number of deaths.
+
+    This is the question 12_replication.py stopped one step short of, and the
+    one a reviewer reaches first. AUC says the probabilities are ordered.
+    Calibration says they are honest. Neither says a clinician should do
+    anything differently, because neither knows what an error costs.
+
+    Net benefit does. Choosing to intervene at a threshold of 0.46 is a
+    statement that one missed death is worth roughly 1.2 unnecessary
+    interventions -- that is what the odds of the threshold mean. Decision
+    curve analysis puts the model, "treat everyone" and "treat nobody" on that
+    single scale, so the comparison is against what a department would
+    otherwise do rather than against chance.
+
+    The comparison is unusually demanding here, and worth flagging before the
+    result is quoted. At 45.0% prevalence "treat everyone" is a strong
+    default: nearly half these patients die, so a blanket policy is right
+    nearly half the time and stays competitive until the threshold approaches
+    the prevalence. A model that beats treat-all in this cohort has cleared a
+    higher bar than the same model would clear at the CHF arm's 25.4%.
+
+    Why this could not be settled in the CHF arm: its held-out calibration
+    slope was 0.706, so its predicted probabilities were systematically wrong.
+    Net benefit is computed BY thresholding those probabilities, so a decision
+    curve drawn on miscalibrated predictions measures the miscalibration as
+    much as the model. At 0.957 here, the curve means what it says.
+
+A58. THE SAME MODEL, A DIFFERENT POPULATION
+    Sensitivity and specificity are properties of the MODEL. Predictive values
+    are properties of the model AND the population, and only the second pair
+    moves between the two cohorts.
+
+    Holding the operating point at 0.50, pre-specified rather than read off
+    the decision curve above: sensitivity 0.607 and specificity 0.759 are
+    identical in both arms by construction. PPV goes from 0.462 at the CHF
+    cohort's 25.4% prevalence to 0.673 here, and NPV goes the other way, 0.850
+    to 0.703.
+
+    The threshold was fixed in advance deliberately. Taking the DCA optimum
+    instead would have been choosing an operating point on a holdout that
+    12_replication.py already spent. It would not have changed this
+    demonstration -- the arithmetic below holds at every threshold -- but a
+    file that argues for holdout discipline should not quietly relax it for
+    convenience, and the cost of being strict here is nil.
+
+    Nothing about the model changed. This is Bayes' rule, and it is the single
+    most common way a published model is misread: a PPV quoted without the
+    prevalence it was measured at is not a portable claim. The same model
+    deployed on a general ward, where 180-day mortality is far below either
+    figure here, would return a PPV that would get it withdrawn -- not because
+    it stopped working, but because most flagged patients would survive.
+
+    The practical consequence for anyone deploying this: sensitivity and
+    specificity travel, predictive values do not. Recalibration to local
+    prevalence is not optional tuning, it is a precondition, and it is cheap
+    -- the intercept moves, the coefficients do not.
+
+A59. DOES IT ADD ANYTHING TO THE CLINICIAN?
+    Yes. Physician alone reaches AUC 0.791; physician plus model reaches
+    0.812, a gain of +0.0206 [+0.0103, +0.0307], excluding zero. The model
+    loses to the physician head-to-head and still adds information the
+    physician does not have -- which is the combination that makes a decision
+    aid worth deploying.
+
+    This is the question worth asking, and it is not "does the model beat the
+    doctor". That contest is rigged and uninteresting: the physician examined
+    the patient and holds information -- appearance, trajectory, the family
+    conversation -- that no column in this file contains. 12_replication.py
+    found the physician ahead on the holdout (physician 0.767, model 0.735),
+    and treated that as the uncomfortable result. It is the expected one.
+
+    The deployable question is whether a model built from routine data adds
+    anything to a judgement the clinician has already formed. If it does, it
+    is worth having even while losing head-to-head, because it costs nothing
+    to compute and the clinician's estimate is not free. If it does not, then
+    no amount of AUC justifies putting it in front of anyone.
+
+    Two honest limits on this comparison. The physician estimate is recorded
+    for 2,090 of the training patients, not all of them, and those are
+    unlikely to be a random subset -- an attending is more likely to commit a
+    number for a patient they have formed a view about. And `prg6m` is a
+    6-month survival estimate against a 180-day outcome: close, but not the
+    same question, which if anything handicaps the physician slightly.
+
+A60. WOULD MORE DATA STILL HELP?
+    It is still climbing. From n=491 to n=2,458 the cross-validated AUC moves
+    +0.0224, and the upper half of the curve extrapolates to +0.015 from
+    doubling again -- against +0.028 in CHF. Even at 2,458 patients the sample
+    is a live constraint, which is a more useful finding than a flat curve: it
+    says the ceiling has not been reached and more of the same data is still
+    worth collecting.
+
+    The CHF learning curve was still climbing at n=978, and A46 recorded that
+    as a wrong expectation -- the reasoning had been that five model families
+    landing within 0.05 AUC of each other implied an information limit rather
+    than a sample limit, and the curve said otherwise. Doubling that cohort
+    extrapolated to +0.028 AUC.
+
+    This cohort is 2.5 times larger and answers the question the CHF arm could
+    only extrapolate toward. It also separates the two constraints that A46
+    conflated: precision and performance. Whatever the curve does, the spread
+    across resamples narrowed from sd 0.0245 to 0.0022, so the larger cohort
+    bought steadier estimates regardless of whether it bought a higher
+    ceiling.
+
+    What no learning curve here can show is the effect of more VARIABLES.
+    Lactate, culture results, antibiotic timing, vasopressor and fluid data --
+    the entire content of the Surviving Sepsis bundles -- are absent from this
+    dataset (12_replication.py A50). The ranking of what to spend money on is
+    unchanged and is worth stating plainly to anyone funding this work: better
+    variables first, more patients second, better algorithms last.
+
+A61. THE LAST LEVER
+    Yes, marginally. Stacking reaches AUC 0.7461 against 0.7389, a difference
+    of +0.0072 [+0.0033, +0.0110], excluding zero. Read the size before the
+    sign: this is a gain of well under one AUC point, bought with a model far
+    harder to explain to a clinician and impossible to confirm on a holdout
+    that no longer exists.
+
+    This closes the last "but did you try..." on the list.
+    11_ceiling_and_transport Q47 widened the elastic net from 24
+    configurations to 250 (-0.0043 AUC) and replaced XGBoost's single hand-set
+    configuration with a 120-candidate random search over nine hyperparameters
+    (+0.0035 AUC). Both were nested, both were honest, both were negative. A
+    grid search cannot reach the one thing left, which is combining model
+    families rather than choosing among them.
+
+    One measurement caveat, stated rather than buried. Q61 uses a single
+    5-fold pass where every other analysis here uses 5 folds x 5 repeats,
+    because the stack refits a nested search inside each fold and the full
+    protocol costs hours. All four arms above go through the identical
+    procedure, so the comparison between them is fair; what is lost is
+    precision on the absolute values, and the bootstrap intervals reflect
+    that.
+
+    A simple average of the two probability vectors is reported beside the
+    stack deliberately. On tabular data it usually matches a trained
+    meta-learner, and when it does, the stack's extra machinery is buying
+    complexity rather than performance -- which is worth knowing before anyone
+    puts a StackingClassifier into a production pipeline.
+
+    AND THE CONSTRAINT THAT ENDS THE DISCUSSION
+    Even a genuine improvement could not be adopted here. The sepsis holdout
+    was spent in 12_replication.py and the CHF holdout in 10_confirmatory.py.
+    A new model requires a fresh holdout, and this dataset no longer has one
+    to give; reporting a stacked model against a partition used to evaluate
+    its components would be exactly the contamination the whole project is
+    built to avoid. So the honest status of anything found here is "promising,
+    and unvalidated" -- which is not a model you deploy, it is a hypothesis
+    for the next cohort.
+
+    That is the real answer to "can we squeeze out a better score". The place
+    to spend effort is not the estimator. Five model families land within 0.05
+    AUC of one another (05_modelling.py Q23), the optimism bootstrap puts the
+    shrinkage factor at 1.00 (07_validation.py Q32), a ten-fold bigger grid
+    moves nothing, and Q60 above shows doubling the cohort would buy +0.015
+    AUC. Every one of those points at the same conclusion: the limit is the
+    information in these twenty-eight variables, and the only lever with real
+    headroom is measuring something this dataset never recorded.
+
+    A NOTE ON WHAT THIS FILE MAY AND MAY NOT DO
+    Q57 and Q58 read a holdout that 12_replication.py already spent. That is
+    legitimate for DESCRIBING a model whose every parameter was fixed
+    beforehand, and illegitimate for choosing between models -- the second
+    look is free only because nothing was selected on it. No threshold
+    reported here was chosen to make the model look better; the DCA optimum is
+    read off the curve as a description, and the model, its predictors and its
+    coefficients are exactly those fitted before any number in this file
+    existed. If a genuinely new model came out of this analysis, it would need
+    a fresh holdout, and this cohort no longer has one to give.
+==============================================================================
